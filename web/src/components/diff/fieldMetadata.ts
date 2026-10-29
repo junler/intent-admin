@@ -1,4 +1,5 @@
 import type { FieldDiff } from '@/api/types';
+import { t } from '@/i18n';
 
 // These bindings mirror the system schema's dictionary fields. Labels and
 // values themselves are loaded through the shared dictionary API/cache.
@@ -15,9 +16,9 @@ const normalTables = new Set([
   'demo_item',
 ]);
 const labels: Record<string, string> = {
-  status: '状态',
-  sex: '性别',
-  visible: '菜单显示',
+  status: t('状态'),
+  sex: t('性别'),
+  visible: t('菜单显示'),
 };
 export function annotateDiffField(entity: string, field: FieldDiff): FieldDiff {
   const name = field.field.replace(

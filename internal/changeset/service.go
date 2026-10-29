@@ -36,45 +36,53 @@ type Service struct {
 func New(db *gorm.DB) *Service { return &Service{db: db} }
 
 type Set struct {
-	ID            string          `gorm:"column:changeset_id;primaryKey" json:"changesetId"`
-	ActorType     string          `json:"actorType"`
-	ActorID       int64           `json:"actorId"`
-	ActorName     string          `json:"actorName"`
-	Source        string          `json:"source"`
-	Intent        string          `json:"intent"`
-	PlanID        string          `json:"planId,omitempty"`
-	Status        string          `json:"status"`
-	Risk          capability.Risk `json:"risk"`
-	Summary       string          `json:"summary"`
-	AffectedCount int             `json:"affectedCount"`
-	ApprovalMode  string          `json:"approvalMode"`
-	ApprovedBy    string          `json:"approvedBy"`
-	CreateTime    time.Time       `json:"createTime"`
-	RolledBackAt  *time.Time      `json:"rolledBackAt,omitempty"`
-	RolledBackBy  string          `json:"rolledBackBy,omitempty"`
-	RollbackOf    string          `json:"rollbackOf,omitempty"`
-	Items         []Item          `gorm:"-" json:"items,omitempty"`
-	RollbackID    string          `gorm:"-" json:"rollbackChangesetId,omitempty"`
+	ID                 string          `gorm:"column:changeset_id;primaryKey" json:"changesetId"`
+	ActorType          string          `json:"actorType"`
+	ActorID            int64           `json:"actorId"`
+	ActorName          string          `json:"actorName"`
+	Source             string          `json:"source"`
+	Intent             string          `json:"intent"`
+	PlanID             string          `json:"planId,omitempty"`
+	Status             string          `json:"status"`
+	Risk               capability.Risk `json:"risk"`
+	Summary            string          `json:"summary"`
+	AffectedCount      int             `json:"affectedCount"`
+	ApprovalMode       string          `json:"approvalMode"`
+	ApprovedBy         string          `json:"approvedBy"`
+	CreateTime         time.Time       `json:"createTime"`
+	RolledBackAt       *time.Time      `json:"rolledBackAt,omitempty"`
+	RolledBackBy       string          `json:"rolledBackBy,omitempty"`
+	RollbackOf         string          `json:"rollbackOf,omitempty"`
+	Items              []Item          `gorm:"-" json:"items,omitempty"`
+	RollbackID         string          `gorm:"-" json:"rollbackChangesetId,omitempty"`
+	RollbackIDs        []string        `gorm:"-" json:"rollbackChangesetIds,omitempty"`
+	RollbackBaseStatus string          `json:"-"`
 }
 
 func (Set) TableName() string { return "sys_changeset" }
 
 type Item struct {
-	ID          int64           `gorm:"column:item_id;primaryKey" json:"itemId"`
-	ChangesetID string          `json:"changesetId"`
-	Seq         int             `json:"seq"`
-	Capability  string          `json:"capability"`
-	Entity      string          `json:"entity"`
-	EntityID    string          `json:"entityId"`
-	EntityLabel string          `json:"entityLabel"`
-	Op          capability.Op   `json:"op"`
-	Args        json.RawMessage `gorm:"type:jsonb" json:"args,omitempty"`
-	Before      json.RawMessage `gorm:"type:jsonb" json:"before,omitempty"`
-	After       json.RawMessage `gorm:"type:jsonb" json:"after,omitempty"`
-	Undo        json.RawMessage `gorm:"type:jsonb" json:"-"`
-	Status      string          `json:"status"`
-	ErrorMsg    string          `json:"errorMsg,omitempty"`
-	CreateTime  time.Time       `json:"createTime"`
+	ID             int64           `gorm:"column:item_id;primaryKey" json:"itemId"`
+	ChangesetID    string          `json:"changesetId"`
+	Seq            int             `json:"seq"`
+	Capability     string          `json:"capability"`
+	Entity         string          `json:"entity"`
+	EntityID       string          `json:"entityId"`
+	EntityLabel    string          `json:"entityLabel"`
+	Op             capability.Op   `json:"op"`
+	Args           json.RawMessage `gorm:"type:jsonb" json:"args,omitempty"`
+	Before         json.RawMessage `gorm:"type:jsonb" json:"before,omitempty"`
+	After          json.RawMessage `gorm:"type:jsonb" json:"after,omitempty"`
+	Undo           json.RawMessage `gorm:"type:jsonb" json:"-"`
+	Status         string          `json:"status"`
+	ErrorMsg       string          `json:"errorMsg,omitempty"`
+	CreateTime     time.Time       `json:"createTime"`
+	ErrorCode      int             `json:"errorCode,omitempty"`
+	ConflictFields json.RawMessage `gorm:"type:jsonb" json:"conflictFields,omitempty"`
+	RolledBackAt   *time.Time      `json:"rolledBackAt,omitempty"`
+	RolledBackBy   string          `json:"rolledBackBy,omitempty"`
+	RollbackID     string          `gorm:"column:rollback_changeset_id;default:null" json:"rollbackChangesetId,omitempty"`
+	UndoGroup      string          `gorm:"-" json:"undoGroup,omitempty"`
 }
 
 func (Item) TableName() string  { return "sys_changeset_item" }
@@ -109,7 +117,7 @@ func (s *Service) Begin(ctx context.Context, a *capability.Actor, summary string
 		summary = string(runes[:500])
 	}
 	id := uuid.NewString()
-	row := Set{ID: id, ActorType: a.Type, ActorID: a.UserID, ActorName: a.UserName, Source: string(a.Source), Intent: a.Intent, PlanID: a.PlanID, Status: "applied", Risk: capability.RiskLow, Summary: summary, ApprovalMode: a.ApprovalMode, CreateTime: time.Now()}
+	row := Set{ID: id, ActorType: a.Type, ActorID: a.UserID, ActorName: a.UserName, Source: string(a.Source), Intent: a.Intent, PlanID: a.PlanID, Status: "applied", Risk: capability.RiskLow, Summary: summary, ApprovalMode: a.ApprovalMode, ApprovedBy: a.ApprovedBy, CreateTime: time.Now()}
 	return id, dbx.DBFrom(ctx, s.db).Create(&row).Error
 }
 
@@ -294,6 +302,16 @@ func (s *Service) load(ctx context.Context, id string, lock bool) (*Set, error) 
 		return nil, err
 	}
 	err := dbx.DBFrom(ctx, s.db).Where("changeset_id = ?", id).Order("seq ASC").Find(&set.Items).Error
+	if err != nil {
+		return nil, err
+	}
+	for i := range set.Items {
+		set.Items[i].UndoGroup, _ = fields(set.Items[i].Args)["undoGroup"].(string)
+	}
+	err = dbx.DBFrom(ctx, s.db).Model(&Set{}).Where("rollback_of = ?", id).Order("create_time ASC, changeset_id ASC").Pluck("changeset_id", &set.RollbackIDs).Error
+	if len(set.RollbackIDs) > 0 {
+		set.RollbackID = set.RollbackIDs[len(set.RollbackIDs)-1]
+	}
 	return &set, err
 }
 
@@ -500,282 +518,6 @@ UNION ALL SELECT 1 FROM sys_user_role ur JOIN sys_role r ON r.role_id=ur.role_id
 	}
 	return nil
 }
-func (s *Service) PreviewRollback(ctx context.Context, id string) (*capability.Preview, error) {
-	a, err := actor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if !a.Can("system:changeset:rollback") {
-		return nil, errcode.Forbiddenf("没有回滚权限")
-	}
-	set, err := s.load(ctx, id, false)
-	if err != nil {
-		return nil, err
-	}
-	if set.Status == "rolled_back" {
-		return nil, errcode.Conflictf("变更集已回滚")
-	}
-	p := &capability.Preview{Summary: "回滚变更集 " + id, Reversible: true, Changes: []capability.Change{}}
-	virtual := map[string]map[string]any{}
-	for i := len(set.Items) - 1; i >= 0; i-- {
-		item := set.Items[i]
-		if item.Status != "applied" && item.Status != "failed" {
-			continue
-		}
-		change := capability.Change{Entity: item.Entity, ID: item.EntityID, Label: item.EntityLabel, Op: capability.OpUpdate}
-		key := item.Entity + "#" + item.EntityID
-		checkErr := s.check(ctx, item, false)
-		current, exists := virtual[key]
-		if exists && (checkErr == nil || errcode.From(checkErr).Code == errcode.StaleData) {
-			checkErr = nil
-			for field, value := range fields(item.After) {
-				if !same(current[field], value) {
-					checkErr = errcode.New(errcode.StaleData, "当前字段与变更记录不一致")
-					break
-				}
-			}
-		}
-		if checkErr != nil {
-			change.Op = capability.OpSkip
-			change.Reason = checkErr.Error()
-			p.Reversible = false
-		} else {
-			before, after := fields(item.Before), fields(item.After)
-			keys := []string{}
-			for k := range before {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				if !same(after[k], before[k]) {
-					change.Fields = append(change.Fields, capability.FieldDiff{Field: k, Before: after[k], After: before[k]})
-				}
-			}
-			if !exists {
-				current, _ = s.snapshot(ctx, item.Entity, item.EntityID, false)
-			}
-			if current == nil {
-				current = map[string]any{}
-			}
-			if item.Op == capability.OpCreate {
-				current = map[string]any{}
-			} else {
-				for k, v := range before {
-					current[k] = v
-				}
-			}
-			virtual[key] = current
-		}
-		p.AddChange(change)
-	}
-	return p, nil
-}
-func (s *Service) Rollback(ctx context.Context, id string) (*Set, error) {
-	a, err := actor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if !a.Can("system:changeset:rollback") {
-		return nil, errcode.Forbiddenf("没有回滚权限")
-	}
-	var original *Set
-	inverseID := ""
-	err = dbx.NewTxRunner(s.db)(ctx, func(txctx context.Context) error {
-		var e error
-		original, e = s.load(txctx, id, false)
-		if e != nil {
-			return e
-		}
-		entities := []string{}
-		for _, item := range original.Items {
-			if entry, ok := capability.Lookup(item.Capability); ok && entry.Reversible && entry.HasUndo() {
-				entities = append(entities, item.Entity)
-			}
-		}
-		if e = s.LockEntities(txctx, entities); e != nil {
-			return e
-		}
-		original, e = s.load(txctx, id, true)
-		if e != nil {
-			return e
-		}
-		if original.Status == "rolled_back" {
-			return errcode.Conflictf("变更集已回滚")
-		}
-		if a.ChangesetID == "" {
-			if a.Intent == "" {
-				a.Intent = "回滚 #" + id
-			}
-			a.ChangesetID, e = s.Begin(txctx, a, "回滚 #"+id)
-			if e != nil {
-				return e
-			}
-		}
-		inverseID = a.ChangesetID
-		if e := dbx.DBFrom(txctx, s.db).Model(&Set{}).Where("changeset_id=?", inverseID).Update("rollback_of", id).Error; e != nil {
-			return e
-		}
-		customDone := map[string]bool{}
-		failed := 0
-		skipped := 0
-		rec := capability.RecorderFrom(txctx)
-		actions := []rollbackAction{}
-		for n := len(original.Items) - 1; n >= 0; n-- {
-			item := &original.Items[n]
-			if item.Status != "applied" && item.Status != "failed" {
-				continue
-			}
-			entry, exists := capability.Lookup(item.Capability)
-			if !exists || !entry.Reversible || !entry.HasUndo() {
-				item.Status = "skipped"
-				item.ErrorMsg = "原操作不可回滚"
-				skipped++
-				if e := dbx.DBFrom(txctx, s.db).Model(item).Updates(map[string]any{"status": item.Status, "error_msg": item.ErrorMsg}).Error; e != nil {
-					return e
-				}
-				continue
-			}
-			args := fields(item.Args)
-			group, _ := args["undoGroup"].(string)
-			if group != "" && customDone[group] {
-				item.Status = "rolled_back"
-				if e := dbx.DBFrom(txctx, s.db).Model(item).Update("status", item.Status).Error; e != nil {
-					return e
-				}
-				continue
-			}
-			oneRecords := []capability.RecordedItem{}
-			oneActions := []rollbackAction{}
-			itemErr := dbx.NewTxRunner(s.db)(txctx, func(oneCtx context.Context) error {
-				if group != "" {
-					for _, peer := range original.Items {
-						peerGroup, _ := fields(peer.Args)["undoGroup"].(string)
-						if peerGroup == group {
-							if e := s.check(oneCtx, peer, true); e != nil {
-								return e
-							}
-						}
-					}
-				} else {
-					if e := s.check(oneCtx, *item, true); e != nil {
-						return e
-					}
-				}
-				peers := []Item{*item}
-				if group != "" {
-					peers = nil
-					for _, peer := range original.Items {
-						peerGroup, _ := fields(peer.Args)["undoGroup"].(string)
-						if peerGroup == group {
-							peers = append(peers, peer)
-						}
-					}
-				}
-				snapshots := map[int64]map[string]any{}
-				for _, peer := range peers {
-					current, err := s.snapshot(oneCtx, peer.Entity, peer.EntityID, false)
-					if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-						return err
-					}
-					snapshots[peer.ID] = current
-				}
-				payload := item.Undo
-				if group != "" {
-					for _, peer := range peers {
-						if len(peer.Undo) > 0 {
-							payload = peer.Undo
-							break
-						}
-					}
-				}
-				if len(payload) == 0 {
-					return errcode.Conflictf("缺少回滚数据")
-				}
-				inverseRecorder := capability.NewRecorder()
-				if err := entry.Undo(capability.WithRecorder(oneCtx, inverseRecorder), payload); err != nil {
-					return err
-				}
-				for _, peer := range peers {
-					beforeUndo := snapshots[peer.ID]
-					afterUndo, snapshotErr := s.snapshot(oneCtx, peer.Entity, peer.EntityID, false)
-					if snapshotErr != nil && !errors.Is(snapshotErr, gorm.ErrRecordNotFound) {
-						return snapshotErr
-					}
-					inverse := capability.RecordedItem{Entity: peer.Entity, ID: peer.EntityID, Label: peer.EntityLabel}
-					if snapshotErr != nil {
-						inverse.Op = capability.OpDelete
-						inverse.Before = safeFields(beforeUndo)
-					} else if beforeUndo == nil {
-						inverse.Op = capability.OpCreate
-						inverse.After = safeFields(afterUndo)
-					} else {
-						inverse.Op = capability.OpUpdate
-						inverse.Before = map[string]any{}
-						inverse.After = map[string]any{}
-						for k, v := range beforeUndo {
-							if !capability.IsSensitive(k) && !same(v, afterUndo[k]) {
-								inverse.Before[k] = v
-								inverse.After[k] = afterUndo[k]
-							}
-						}
-					}
-					oneRecords = append(oneRecords, inverse)
-					if s.Invalidate != nil {
-						entity, key := peer.Entity, peer.EntityID
-						dbx.AfterCommit(oneCtx, func() {
-							if err := s.Invalidate(context.WithoutCancel(ctx), entity, key); err != nil {
-								slog.Error("回滚后权限缓存清理失败", "error", err)
-							}
-						})
-					}
-				}
-				if inverse, ok := inverseRecorder.UndoOverride(); ok {
-					oneActions = append(oneActions, rollbackAction{Capability: entry.Name, Guard: entry.Name, Payload: inverse})
-				} else {
-					for _, inverse := range oneRecords {
-						oneActions = append(oneActions, rollbackAction{Capability: "system.changeset.rollback", Guard: entry.Name, Payload: raw(undo.Payload{Entity: inverse.Entity, ID: inverse.ID, Op: inverse.Op, Before: inverse.Before, After: inverse.After})})
-					}
-				}
-				return nil
-			})
-			if itemErr != nil {
-				failed++
-				item.Status = "failed"
-				item.ErrorMsg = itemErr.Error()
-			} else {
-				for _, record := range oneRecords {
-					recordInto(rec, record)
-				}
-				actions = append(actions, oneActions...)
-				item.Status = "rolled_back"
-				item.ErrorMsg = ""
-				if group != "" {
-					customDone[group] = true
-				}
-			}
-			if e := dbx.DBFrom(txctx, s.db).Model(item).Updates(map[string]any{"status": item.Status, "error_msg": item.ErrorMsg}).Error; e != nil {
-				return e
-			}
-		}
-		status := "rolled_back"
-		if failed > 0 || skipped > 0 {
-			status = "rollback_failed"
-		}
-		if len(actions) > 0 {
-			rec.SetUndo(rollbackUndo{Actions: actions})
-		}
-		now := time.Now()
-		return dbx.DBFrom(txctx, s.db).Model(original).Updates(map[string]any{"status": status, "rolled_back_at": now, "rolled_back_by": a.UserName}).Error
-	})
-	if err != nil {
-		return nil, err
-	}
-	result, err := s.load(ctx, id, false)
-	if result != nil {
-		result.RollbackID = inverseID
-	}
-	return result, err
-}
 
 // Undo compensates the inverse records generated by Rollback.
 func (s *Service) Undo(ctx context.Context, payload json.RawMessage) error {
@@ -827,7 +569,7 @@ func (s *Service) Finish(ctx context.Context, id, status string) error {
 func (s *Service) Register() {
 	capability.Register(capability.Capability[ListIn, response.Page]{Meta: capability.Meta{Name: "system.changeset.list", Summary: "查询变更历史", Perm: "system:changeset:list", Risk: capability.RiskLow, HTTP: &capability.HTTPBinding{Method: "GET", Path: "/system/changeset/list"}, AIEnabled: true, MCPEnabled: true}, Fn: s.List})
 	capability.Register(capability.Capability[IDIn, *Set]{Meta: capability.Meta{Name: "system.changeset.get", Summary: "变更集详情", Perm: "system:changeset:query", Risk: capability.RiskLow, HTTP: &capability.HTTPBinding{Method: "GET", Path: "/system/changeset/:id"}, AIEnabled: true, MCPEnabled: true}, Fn: func(ctx context.Context, in IDIn) (*Set, error) { return s.Get(ctx, in.ID) }})
-	capability.Register(capability.Capability[IDIn, *Set]{Meta: capability.Meta{Name: "system.changeset.rollback", Summary: "回滚变更集", Perm: "system:changeset:rollback", Risk: capability.RiskHigh, Mutating: true, Reversible: true, HTTP: &capability.HTTPBinding{Method: "POST", Path: "/system/changeset/:id/rollback"}, AIEnabled: true, MCPEnabled: true}, Fn: func(ctx context.Context, in IDIn) (*Set, error) { return s.Rollback(ctx, in.ID) }, DryRun: func(ctx context.Context, in IDIn) (*capability.Preview, error) { return s.PreviewRollback(ctx, in.ID) }, Undo: s.Undo})
+	capability.Register(capability.Capability[RollbackIn, *Set]{Meta: capability.Meta{Name: "system.changeset.rollback", Summary: "回滚变更集", Perm: "system:changeset:rollback", Risk: capability.RiskHigh, Mutating: true, Reversible: true, HTTP: &capability.HTTPBinding{Method: "POST", Path: "/system/changeset/:id/rollback"}, AIEnabled: true, MCPEnabled: true}, Fn: s.RollbackSelected, DryRun: s.PreviewRollbackSelected, Undo: s.Undo})
 }
 
 // LockEntities serialises preview rechecks with concurrent writes, including
@@ -921,6 +663,7 @@ type rollbackAction struct {
 }
 type rollbackUndo struct {
 	Actions []rollbackAction `json:"actions"`
+	States  []rollbackState  `json:"states,omitempty"`
 }
 
 func recordInto(rec capability.Recorder, item capability.RecordedItem) {
@@ -997,6 +740,10 @@ func (s *Service) undoActions(ctx context.Context, data rollbackUndo) error {
 		}
 		inverse = append(inverse, rollbackAction{Capability: action.Capability, Guard: action.Guard, Payload: raw(p)})
 	}
-	capability.RecorderFrom(ctx).SetUndo(rollbackUndo{Actions: inverse})
+	states, err := s.undoRollbackStates(ctx, data.States)
+	if err != nil {
+		return err
+	}
+	capability.RecorderFrom(ctx).SetUndo(rollbackUndo{Actions: inverse, States: states})
 	return nil
 }

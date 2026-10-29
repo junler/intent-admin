@@ -124,7 +124,7 @@ func TestPlanPersistenceRecheckGroupingRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	if p.Status != "done" || p.ChangesetID == "" {
-		t.Fatalf("bad result %+v", p)
+		t.Fatalf("bad result %+v steps=%+v", p, p.Steps)
 	}
 	db.Table("sys_changeset").Count(&count)
 	if count != 1 {

@@ -30,12 +30,15 @@ type FieldDiff struct {
 
 // Change is one affected record.
 type Change struct {
-	Entity string      `json:"entity"`
-	ID     string      `json:"id"`
-	Label  string      `json:"label,omitempty"`
-	Op     Op          `json:"op"`
-	Fields []FieldDiff `json:"fields,omitempty"`
-	Reason string      `json:"reason,omitempty"`
+	ItemID         int64       `json:"itemId,omitempty"`
+	Status         string      `json:"status,omitempty"`
+	ConflictFields []string    `json:"conflictFields,omitempty"`
+	Entity         string      `json:"entity"`
+	ID             string      `json:"id"`
+	Label          string      `json:"label,omitempty"`
+	Op             Op          `json:"op"`
+	Fields         []FieldDiff `json:"fields,omitempty"`
+	Reason         string      `json:"reason,omitempty"`
 }
 
 // Evidence lets the UI build a "go and check" link: the route plus the filter
@@ -53,18 +56,29 @@ const MaxPreviewChanges = 200
 // Preview is the result of a dry run: what would happen if this capability ran
 // with these arguments, without having run it.
 type Preview struct {
-	Summary    string    `json:"summary"`
-	Affected   int       `json:"affected"`
-	Skipped    int       `json:"skipped"`
-	Changes    []Change  `json:"changes,omitempty"`
-	Truncated  bool      `json:"truncated,omitempty"`
-	Warnings   []string  `json:"warnings,omitempty"`
-	Evidence   *Evidence `json:"evidence,omitempty"`
-	Reversible bool      `json:"reversible"`
+	// ConfirmationHash binds a selective compensation to its reviewed state.
+	ConfirmationHash string            `json:"confirmationHash,omitempty"`
+	Selection        *PreviewSelection `json:"selection,omitempty"`
+	Summary          string            `json:"summary"`
+	Affected         int               `json:"affected"`
+	Skipped          int               `json:"skipped"`
+	Changes          []Change          `json:"changes,omitempty"`
+	Truncated        bool              `json:"truncated,omitempty"`
+	Warnings         []string          `json:"warnings,omitempty"`
+	Evidence         *Evidence         `json:"evidence,omitempty"`
+	Reversible       bool              `json:"reversible"`
 	// Capability and Risk are filled in by the executor so a preview is
 	// self-describing when it travels to the frontend or into a plan.
 	Capability string `json:"capability,omitempty"`
 	Risk       Risk   `json:"risk,omitempty"`
+}
+
+// PreviewSelection describes the exact persisted items selected for compensation.
+type PreviewSelection struct {
+	ItemIDs           []int64 `json:"itemIds"`
+	Total             int     `json:"total"`
+	Remaining         int     `json:"remaining"`
+	AlreadyRolledBack int     `json:"alreadyRolledBack"`
 }
 
 // AddChange appends a change, maintaining the counters and the truncation flag.

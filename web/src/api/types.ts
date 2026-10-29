@@ -1,12 +1,13 @@
+import { t } from '@/i18n';
 /** Mirrors internal/capability — keep in sync with the Go types. */
 
 export type Risk = 'low' | 'medium' | 'high' | 'critical';
 
 export const RiskLabel: Record<Risk, string> = {
-  low: '低风险',
-  medium: '中风险',
-  high: '高风险',
-  critical: '极高风险',
+  low: t('低风险'),
+  medium: t('中风险'),
+  high: t('高风险'),
+  critical: t('极高风险'),
 };
 
 /** antd Tag colours per risk level. */
@@ -20,10 +21,10 @@ export const RiskColor: Record<Risk, string> = {
 export type ChangeOp = 'create' | 'update' | 'delete' | 'skip';
 
 export const OpLabel: Record<ChangeOp, string> = {
-  create: '新增',
-  update: '修改',
-  delete: '删除',
-  skip: '跳过',
+  create: t('新增'),
+  update: t('修改'),
+  delete: t('删除'),
+  skip: t('跳过'),
 };
 
 export interface FieldDiff {

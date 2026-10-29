@@ -1,9 +1,10 @@
+import { message } from 'antd';
 import axios, {
   type AxiosError,
   type AxiosInstance,
   type AxiosRequestConfig,
 } from 'axios';
-import { message } from 'antd';
+import { getLocale, localizeDescriptor, localizeMessage, t } from '@/i18n';
 
 /** Application codes mirroring internal/pkg/errcode. */
 export const Code = {
@@ -95,6 +96,7 @@ http.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  config.headers['Accept-Language'] = getLocale();
   return config;
 });
 
@@ -107,14 +109,26 @@ http.interceptors.response.use(
     const body = response.data as Envelope;
     if (body?.code === Code.OK) {
       const changesetId = response.headers?.['x-changeset-id'];
-      if (changesetId && body.data && typeof body.data === 'object' && !Array.isArray(body.data)) {
+      if (
+        changesetId &&
+        body.data &&
+        typeof body.data === 'object' &&
+        !Array.isArray(body.data)
+      ) {
         return { ...body.data, changesetId } as never;
       }
+      const url = response.config.url ?? '';
+      if (
+        /^\/(?:ai\/(?:capabilities|knowledge)|system\/(?:aiprovider|aiProvider|storage)\/presets|monitor\/job\/handlers)(?:[/?]|$)/.test(
+          url,
+        )
+      )
+        return localizeDescriptor(body.data) as never;
       return body.data as never;
     }
     throw new ApiError(
       body?.code ?? Code.InternalError,
-      body?.msg ?? '请求失败',
+      localizeMessage(body?.msg ?? '请求失败'),
       body?.data,
     );
   },
@@ -130,8 +144,8 @@ http.interceptors.response.use(
     }
     const envelope = body as Envelope | undefined;
     const code = envelope?.code ?? status ?? Code.InternalError;
-    const msg = envelope?.msg ?? error.message ?? '网络异常';
-    throw new ApiError(code, msg, envelope?.data);
+    const msg = envelope?.msg ?? error.message ?? t('网络异常');
+    throw new ApiError(code, localizeMessage(msg), envelope?.data);
   },
 );
 
@@ -181,7 +195,7 @@ function handle(err: ApiError, silent?: boolean, ignoreUnauthorized?: boolean) {
   switch (err.code) {
     case Code.Unauthorized:
       if (ignoreUnauthorized) {
-        if (!silent) message.error(err.message || '登录失败');
+        if (!silent) message.error(err.message || t('登录失败'));
         return;
       }
       auth.clear();
@@ -192,14 +206,14 @@ function handle(err: ApiError, silent?: boolean, ignoreUnauthorized?: boolean) {
       }
       return;
     case Code.Forbidden:
-      if (!silent) message.error(err.message || '没有权限');
+      if (!silent) message.error(err.message || t('没有权限'));
       return;
     case Code.StaleData:
     case Code.RiskExceeded:
       // Handled by the caller, which has the UI context to explain it.
       return;
     default:
-      if (!silent) message.error(err.message || '请求失败');
+      if (!silent) message.error(err.message || t('请求失败'));
   }
 }
 
@@ -240,10 +254,14 @@ export async function download(
   if ((response.data as Blob).type.includes('json')) {
     const body = JSON.parse(await (response.data as Blob).text()) as Envelope;
     if (body.code === Code.OK) {
-      message.success(body.msg === '操作成功' ? '导出任务已提交，完成后可在文件管理下载' : body.msg);
+      message.success(
+        body.msg === '操作成功'
+          ? localizeMessage('导出任务已提交，完成后可在文件管理下载')
+          : localizeMessage(body.msg),
+      );
       return;
     }
-    const error = new ApiError(body.code, body.msg, body.data);
+    const error = new ApiError(body.code, localizeMessage(body.msg), body.data);
     if (sessionToken === auth.get()) handle(error);
     throw error;
   }

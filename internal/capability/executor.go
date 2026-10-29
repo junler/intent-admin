@@ -205,6 +205,9 @@ func resolve(ctx context.Context, name string) (*Entry, *Actor, error) {
 // checkPermission enforces the permission string only. The risk ceiling is a
 // separate gate (checkRisk) because previews deliberately skip it.
 func checkPermission(e *Entry, actor *Actor) error {
+	if actor.ReadOnly && e.Mutating {
+		return errcode.Forbiddenf("当前授权范围只允许读取")
+	}
 	if !actor.Can(e.Perm) {
 		return errcode.Forbiddenf("没有权限执行 %s", e.Summary)
 	}
@@ -295,6 +298,7 @@ func run(ctx context.Context, e *Entry, actor *Actor, in any) (out any, err erro
 		Intent:       actor.Intent,
 		PlanID:       actor.PlanID,
 		ApprovalMode: actor.ApprovalMode,
+		ApprovedBy:   actor.ApprovedBy,
 		Param:        TruncateJSON(auditParameters(e.Name, in), maxAuditParam),
 		OccurredAt:   started,
 	}
@@ -312,6 +316,11 @@ func run(ctx context.Context, e *Entry, actor *Actor, in any) (out any, err erro
 		}
 		rec.CostMS = time.Since(started).Milliseconds()
 		rec.Success = err == nil
+		if err == nil && rec.ChangesetID == "" {
+			if result := callResult(ctx); result != nil {
+				rec.ChangesetID = result.ChangesetID
+			}
+		}
 		if err != nil {
 			rec.ErrorMsg = errcode.From(err).Msg
 		} else {

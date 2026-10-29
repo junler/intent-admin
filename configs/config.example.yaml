@@ -86,6 +86,7 @@ ai:
   session_ttl: 168h
 
 mcp:
+  oauth_issuer: "http://127.0.0.1:8080" # Canonical public origin; HTTPS in production. Empty disables OAuth; PAT remains available.
   enabled: true
   path: /mcp
   tool_mode: meta         # meta | flat

@@ -297,13 +297,13 @@ func (r *Runtime) GetConfigs() ([]*asynq.PeriodicTaskConfig, error) {
 }
 func (r *Runtime) mux() *asynq.ServeMux {
 	m := asynq.NewServeMux()
-	m.HandleFunc("intent-admin:job", func(ctx context.Context, t *asynq.Task) error { return r.executeDelivery(ctx, t, r.handleJob) })
-	m.HandleFunc("intent-admin:export", func(ctx context.Context, t *asynq.Task) error { return r.executeDelivery(ctx, t, r.handleExport) })
-	m.HandleFunc("intent-admin:maintenance", func(ctx context.Context, _ *asynq.Task) error {
+	m.HandleFunc("intent-admin:job", r.cancellable(func(ctx context.Context, t *asynq.Task) error { return r.executeDelivery(ctx, t, r.handleJob) }))
+	m.HandleFunc("intent-admin:export", r.cancellable(func(ctx context.Context, t *asynq.Task) error { return r.executeDelivery(ctx, t, r.handleExport) }))
+	m.HandleFunc("intent-admin:maintenance", r.cancellable(func(ctx context.Context, _ *asynq.Task) error {
 		ctx = capability.WithActor(ctx, capability.SystemActor("首页统计刷新"))
 		_, err := capability.InvokeJSON(ctx, "task.system.refreshDashboard", json.RawMessage(`{}`))
 		return err
-	})
+	}))
 	return m
 }
 func (r *Runtime) Start(ctx context.Context) error {

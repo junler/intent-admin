@@ -1,13 +1,13 @@
 import { Alert, Empty, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-
 import {
-  OpLabel,
   type Change,
   type FieldDiff,
+  OpLabel,
   type Preview,
 } from '@/api/types';
 import { DictTag } from '@/components/dict/DictTag';
+import { t } from '@/i18n';
 import { annotateDiffField } from './fieldMetadata';
 
 const opColor: Record<Change['op'], string> = {
@@ -22,7 +22,7 @@ function Value({ raw, text }: { raw: unknown; text?: string }) {
   const dictionary = text ? /^([a-z][a-z\d_]*):(.*)$/i.exec(text) : null;
   if (dictionary) return <DictTag type={dictionary[1]} value={dictionary[2]} />;
   if (raw === null || raw === undefined || raw === '') {
-    return <Typography.Text type="secondary">（空）</Typography.Text>;
+    return <Typography.Text type="secondary">{t('（空）')}</Typography.Text>;
   }
   return (
     <Typography.Text>
@@ -69,7 +69,7 @@ export function DiffTable({ preview, historical = false }: DiffTableProps) {
   );
   const columns: ColumnsType<Change> = [
     {
-      title: '操作',
+      title: t('操作'),
       dataIndex: 'op',
       width: 88,
       render: (op: Change['op']) => (
@@ -77,7 +77,7 @@ export function DiffTable({ preview, historical = false }: DiffTableProps) {
       ),
     },
     {
-      title: '记录',
+      title: t('记录'),
       dataIndex: 'label',
       width: 220,
       render: (label: string | undefined, row) => (
@@ -92,13 +92,13 @@ export function DiffTable({ preview, historical = false }: DiffTableProps) {
       ),
     },
     {
-      title: '变更内容',
+      title: t('变更内容'),
       key: 'fields',
       render: (_, row) => {
         if (row.op === 'skip') {
           return (
             <Typography.Text type="secondary">
-              {row.reason || '无变化'}
+              {row.reason || t('无变化')}
             </Typography.Text>
           );
         }
@@ -114,9 +114,19 @@ export function DiffTable({ preview, historical = false }: DiffTableProps) {
     <div className="flex flex-col gap-3">
       <Space size={8} wrap>
         <Typography.Text strong>{preview.summary}</Typography.Text>
-        <Tag color="blue">影响 {preview.affected} 条</Tag>
-        {preview.skipped > 0 && <Tag>跳过 {preview.skipped} 条</Tag>}
-        {!historical && !preview.reversible && <Tag color="red">不可回滚</Tag>}
+        <Tag color="blue">
+          {t('影响 ')}
+          {preview.affected} {t(' 条')}
+        </Tag>
+        {preview.skipped > 0 && (
+          <Tag>
+            {t('跳过 ')}
+            {preview.skipped} {t(' 条')}
+          </Tag>
+        )}
+        {!historical && !preview.reversible && (
+          <Tag color="red">{t('不可回滚')}</Tag>
+        )}
       </Space>
 
       {/* An irreversible operation is the one case where emphasis is
@@ -125,8 +135,10 @@ export function DiffTable({ preview, historical = false }: DiffTableProps) {
         <Alert
           type="error"
           showIcon
-          message="此操作不可回滚"
-          description="执行后无法通过变更历史撤销，请确认影响范围后再继续。"
+          message={t('此操作不可回滚')}
+          description={t(
+            '执行后无法通过变更历史撤销，请确认影响范围后再继续。',
+          )}
         />
       )}
 
@@ -151,14 +163,14 @@ export function DiffTable({ preview, historical = false }: DiffTableProps) {
         />
       ) : (
         <Empty
-          description="没有需要变更的记录"
+          description={t('没有需要变更的记录')}
           image={Empty.PRESENTED_IMAGE_SIMPLE}
         />
       )}
 
       {preview.truncated && (
         <Typography.Text type="secondary" className="text-xs">
-          变更条目过多，仅列出前 200 条；上方的影响条数是完整统计。
+          {t('变更条目过多，仅列出前 200 条；上方的影响条数是完整统计。')}
         </Typography.Text>
       )}
     </div>

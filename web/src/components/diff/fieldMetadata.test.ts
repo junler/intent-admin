@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { annotateDiffField } from './fieldMetadata';
+
 describe('rollback dictionary annotations', () => {
   it('uses dynamic dictionary identifiers for raw stored status diffs', () => {
     expect(

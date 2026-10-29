@@ -40,6 +40,7 @@ var dictFields = map[string]string{
 
 // Register wires the demo capabilities. Called from bootstrap.
 func Register(db *gorm.DB) {
+	registerCreate(db)
 	svc := service.NewDemoService(db)
 	tbl := undo.Table{Name: table, IDField: "item_id"}
 

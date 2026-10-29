@@ -1,5 +1,7 @@
+import { t } from '@/i18n';
 import { useEffect, useState } from "react";
-import { Button, Card, Space, Spin } from "antd";
+import { Button, Space, Spin } from "antd";
+import { PageContainer } from '@ant-design/pro-components';
 import { ReloadOutlined } from "@ant-design/icons";
 import { InfoPanel } from "@/components/admin/InfoPanel";
 import { api } from "@/utils/request";
@@ -16,19 +18,18 @@ export default function Server() {
 		}
 	}
 	useEffect(() => {
-		void load();
+		void load().catch(() => {});
 	}, []);
 	return (
-		<Card
-			title="服务监控"
+		<PageContainer
+			title={t("服务监控")}
 			extra={
 				<Button
 					icon={<ReloadOutlined />}
-					onClick={() => void load()}
+					onClick={() => void load().catch(() => {})}
 					loading={busy}
 				>
-					刷新
-				</Button>
+					{t("刷新")}</Button>
 			}
 		>
 			<Spin spinning={busy}>
@@ -38,6 +39,6 @@ export default function Server() {
 					))}
 				</Space>
 			</Spin>
-		</Card>
+		</PageContainer>
 	);
 }

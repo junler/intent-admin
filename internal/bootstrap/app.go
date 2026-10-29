@@ -28,11 +28,14 @@ import (
 	"github.com/junler/intent-admin/internal/dbx"
 	"github.com/junler/intent-admin/internal/feature/dashboard"
 	"github.com/junler/intent-admin/internal/feature/demo"
+	"github.com/junler/intent-admin/internal/feature/importer"
 	"github.com/junler/intent-admin/internal/feature/monitor"
 	"github.com/junler/intent-admin/internal/feature/resources"
 	"github.com/junler/intent-admin/internal/feature/system"
 	"github.com/junler/intent-admin/internal/knowledge"
 	"github.com/junler/intent-admin/internal/middleware"
+	"github.com/junler/intent-admin/internal/notification"
+	"github.com/junler/intent-admin/internal/oauth"
 	"github.com/junler/intent-admin/internal/pkg/errcode"
 	"github.com/junler/intent-admin/internal/pkg/response"
 	"github.com/junler/intent-admin/internal/pkg/secret"
@@ -50,20 +53,23 @@ var (
 
 // App holds the assembled dependencies.
 type App struct {
-	Cfg        *config.Config
-	DB         *gorm.DB
-	Cache      *cache.Cache
-	Secret     *secret.Cipher
-	Auth       *auth.Service
-	System     *system.Service
-	Resources  *resources.Service
-	Changesets *changeset.Service
-	Plans      *plan.Service
-	Knowledge  *knowledge.Service
-	Tasks      *task.Runtime
-	Dashboard  *dashboard.Service
-	Agent      *agent.Service
-	MCP        *mcpx.Adapter
+	Cfg           *config.Config
+	DB            *gorm.DB
+	Cache         *cache.Cache
+	Secret        *secret.Cipher
+	Auth          *auth.Service
+	System        *system.Service
+	Resources     *resources.Service
+	Changesets    *changeset.Service
+	Plans         *plan.Service
+	Knowledge     *knowledge.Service
+	Tasks         *task.Runtime
+	Dashboard     *dashboard.Service
+	Agent         *agent.Service
+	MCP           *mcpx.Adapter
+	Imports       *importer.Service
+	Notifications *notification.Service
+	OAuth         *oauth.Service
 }
 
 // New opens the infrastructure and wires the capability executor.
@@ -155,6 +161,17 @@ func (a *App) registerFeatures() error {
 	a.Changesets.Register()
 	maxRisk, _ := capability.ParseRisk(a.Cfg.AI.MaxRisk)
 	a.Plans = plan.New(a.DB, plan.Options{TTL: a.Cfg.AI.PlanTTL, MaxSteps: a.Cfg.AI.MaxPlanSteps, MaxAffected: a.Cfg.AI.MaxAffected, MaxRisk: maxRisk, Changesets: a.Changesets})
+	a.Imports = importer.New(a.DB, a.Cache, a.Changesets, a.Cfg.Changeset.MaxItemsPerSet)
+	a.Notifications = notification.New(a.DB)
+	a.Plans.ActorLoader = a.Auth.CurrentAIActor
+	a.Plans.Notify = func(ctx context.Context, event plan.ApprovalNotification) error {
+		titles := map[string]string{"pending": "收到计划审批", "approved": "计划审批已通过", "rejected": "计划审批已拒绝", "revoked": "计划审批已撤销", "applied": "审批计划已执行", "stale": "计划审批需要更新"}
+		title := titles[event.Status]
+		if title == "" {
+			title = "计划审批状态已更新"
+		}
+		return a.Notifications.Publish(ctx, event.UserID, title, "请进入审批中心查看计划及最新审批状态。", "/ai/approvals?id="+event.ApprovalID)
+	}
 	monitor.Register(a.DB, a.Cache, a.Cfg, a.Tasks)
 	a.Dashboard = dashboard.Register(a.DB, a.Cache, a.Cfg, a.Tasks)
 	a.Tasks.FileWriter = a.Resources.StoreReader
@@ -164,6 +181,15 @@ func (a *App) registerFeatures() error {
 	a.Agent = agent.New(a.DB, a.Cache, a.Cfg, a.Resources, a.Plans, a.Knowledge)
 	a.MCP = mcpx.New(a.Cache, a.Cfg, a.Auth.AuthenticatePAT, a.Knowledge)
 	a.MCP.SetConfirmationRunner(a.Plans.ConfirmedRun)
+	if a.Cfg.MCP.Enabled && a.Cfg.MCP.OAuthIssuer != "" {
+		var err error
+		a.OAuth, err = oauth.New(a.DB, a.Cache, oauth.Options{Issuer: a.Cfg.MCP.OAuthIssuer, ResourcePath: a.Cfg.MCP.Path, ConsentPath: "/oauth/consent"}, a.Auth.CurrentMCPActor)
+		if err != nil {
+			return err
+		}
+		a.OAuth.Audit = a.Changesets.WriteAudit
+		a.MCP.SetOAuth(a.OAuth.Authenticate, a.OAuth.ResourceMetadataURL())
+	}
 	return nil
 }
 
@@ -197,11 +223,20 @@ func (a *App) Router() *gin.Engine {
 
 	a.Auth.MountPublic(r.Group(a.Cfg.App.BasePath))
 	a.Resources.MountPublic(r.Group(a.Cfg.App.BasePath))
+	if a.OAuth != nil {
+		a.OAuth.MountPublic(r)
+	}
 	api := r.Group(a.Cfg.App.BasePath)
 	api.Use(a.Auth.Middleware())
 	a.Auth.MountProtected(api)
 	a.Resources.Mount(api)
 	a.Agent.Mount(api)
+	a.Plans.RegisterApprovalHTTP(api.Group("/ai"))
+	a.Imports.Mount(api)
+	a.Notifications.Mount(api)
+	if a.OAuth != nil {
+		a.OAuth.MountProtected(api)
+	}
 	httpx.Mount(api, capability.All(), httpx.Options{
 		ExportMaxRows:         a.Cfg.Export.MaxRows,
 		ExportStreamThreshold: a.Cfg.Export.StreamThreshold,

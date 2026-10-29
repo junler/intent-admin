@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AxiosAdapter } from 'axios';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('antd', () => ({ message: { error: vi.fn() } }));
 

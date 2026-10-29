@@ -1,5 +1,5 @@
 // Package mcpx projects the capability registry into the official MCP SDK.
-// Every invocation revalidates its PAT and passes through the same executor.
+// Every invocation revalidates its bearer grant and uses the same executor.
 package mcpx
 
 import (
@@ -35,13 +35,27 @@ type Adapter struct {
 	cache              *cache.Cache
 	cfg                *config.Config
 	authenticate       Authenticator
+	oauthAuthenticate  Authenticator
+	resourceMetadata   string
 	knowledge          Knowledge
 	confirmationRunner func(context.Context, func(context.Context) error) error
 }
 type httpCheckedKey struct{}
 
 func New(c *cache.Cache, cfg *config.Config, authenticator Authenticator, k Knowledge) *Adapter {
+	registerResourceCapabilities()
 	return &Adapter{cache: c, cfg: cfg, authenticate: authenticator, knowledge: k}
+}
+
+// SetOAuth enables opaque OAuth access tokens alongside existing PATs.
+func (a *Adapter) SetOAuth(authenticator Authenticator, metadataURL string) {
+	a.oauthAuthenticate, a.resourceMetadata = authenticator, metadataURL
+}
+func (a *Adapter) authenticateToken(ctx context.Context, token string) (*capability.Actor, error) {
+	if strings.HasPrefix(token, "iao_") && a.oauthAuthenticate != nil {
+		return a.oauthAuthenticate(ctx, token)
+	}
+	return a.authenticate(ctx, token)
 }
 
 // SetConfirmationRunner installs an outer database transaction and business
@@ -66,10 +80,14 @@ func (a *Adapter) Handler() http.Handler {
 			return
 		}
 		token := bearer(r.Header.Get("Authorization"))
-		actor, err := a.authenticate(r.Context(), token)
+		actor, err := a.authenticateToken(r.Context(), token)
 		if err != nil {
-			w.Header().Set("WWW-Authenticate", "Bearer")
-			http.Error(w, "无效或已过期的个人访问令牌", http.StatusUnauthorized)
+			challenge := "Bearer"
+			if a.resourceMetadata != "" {
+				challenge += " resource_metadata=" + strconv.Quote(a.resourceMetadata) + ", error=\"invalid_token\""
+			}
+			w.Header().Set("WWW-Authenticate", challenge)
+			http.Error(w, "无效或已过期的访问令牌", http.StatusUnauthorized)
 			return
 		}
 		if err = a.rate(r.Context(), actor); err != nil {
@@ -136,9 +154,15 @@ func (a *Adapter) entry(ctx context.Context, name string) (*capability.Entry, *c
 	if !ok || !e.VisibleTo(capability.SourceMCP, actor.Perms, actor.MaxRisk) || !a.tagged(e) {
 		return nil, nil, errcode.NotFoundf("未找到可用功能 %s", name)
 	}
+	if actor.ReadOnly && e.Mutating {
+		return nil, nil, errcode.NotFoundf("未找到可用功能 %s", name)
+	}
 	return e, actor, nil
 }
 func (a *Adapter) tagged(e *capability.Entry) bool {
+	if strings.HasPrefix(e.Name, "mcp.resource.") {
+		return false
+	}
 	// Critical operations always require a human in the management UI. A
 	// deployment or PAT ceiling cannot turn that boundary into a confirmation.
 	if e.Risk == capability.RiskCritical {
@@ -346,14 +370,15 @@ func str(description string) map[string]any {
 }
 
 // Server is exported for in-memory transport tests and local integrations.
-// Handlers never trust its captured catalogue actor for execution: the PAT is
+// Handlers never trust its captured catalogue actor for execution: the grant is
 // loaded again on each tool call, so revocation and grant changes take effect.
 func (a *Adapter) Server(catalogue *capability.Actor, token string) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "intent-admin", Version: "1.0.0"}, nil)
+	a.mountResources(srv, token)
 	add := func(t *mcp.Tool, fn func(context.Context, json.RawMessage) (any, error)) {
 		srv.AddTool(t, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			previous, _ := capability.ActorFrom(ctx)
-			actor, err := a.authenticate(ctx, token)
+			actor, err := a.authenticateToken(ctx, token)
 			if err != nil {
 				return result(nil, errcode.Unauthorizedf("令牌已失效"))
 			}
@@ -379,7 +404,7 @@ func (a *Adapter) Server(catalogue *capability.Actor, token string) *mcp.Server 
 	if a.cfg.MCP.ToolMode == "flat" {
 		if catalogue != nil {
 			for _, e := range capability.Visible(capability.SourceMCP, catalogue.Perms, catalogue.MaxRisk) {
-				if !a.tagged(e) {
+				if !a.tagged(e) || catalogue.ReadOnly && e.Mutating {
 					continue
 				}
 				entry := e
@@ -399,7 +424,7 @@ func (a *Adapter) Server(catalogue *capability.Actor, token string) *mcp.Server 
 			actor, _ := capability.ActorFrom(ctx)
 			out := []capability.Descriptor{}
 			for _, e := range capability.Search(capability.SourceMCP, actor.Perms, actor.MaxRisk, in.Keyword, 100) {
-				if a.tagged(e) {
+				if a.tagged(e) && !(actor.ReadOnly && e.Mutating) {
 					out = append(out, e.Brief())
 				}
 				if len(out) >= 30 {

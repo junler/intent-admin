@@ -1,8 +1,8 @@
-import { useCallback, useState } from 'react';
 import { App } from 'antd';
-
+import { useCallback, useState } from 'react';
 import type { Preview } from '@/api/types';
-import { ApiError, Code, api, type RiskExceededDetail } from '@/utils/request';
+import { t } from '@/i18n';
+import { ApiError, api, Code, type RiskExceededDetail } from '@/utils/request';
 
 export interface PreviewActionConfig {
   /** Capability name, for messages. */
@@ -82,7 +82,7 @@ export function usePreviewAction(cfg: PreviewActionConfig) {
         // a history page: the moment right after an accidental action is when
         // a user actually wants it.
         message.success({
-          content: '操作成功',
+          content: t('操作成功'),
           duration: 4,
         });
         cfg.onDone?.();
@@ -93,8 +93,8 @@ export function usePreviewAction(cfg: PreviewActionConfig) {
           // only honest response — silently applying would execute something
           // the user never saw.
           modal.warning({
-            title: '数据已变化',
-            content: '预览之后数据发生了变化，请重新确认影响范围。',
+            title: t('数据已变化'),
+            content: t('预览之后数据发生了变化，请重新确认影响范围。'),
             onOk: () => void run(execArgs),
           });
           return;
@@ -112,7 +112,7 @@ export function usePreviewAction(cfg: PreviewActionConfig) {
     if (!(err instanceof ApiError) || err.code !== Code.RiskExceeded) return;
     const detail = err.detail as RiskExceededDetail | undefined;
     modal.info({
-      title: '需要人工在页面执行',
+      title: t('需要人工在页面执行'),
       content: detail?.hint ?? err.message,
     });
   }

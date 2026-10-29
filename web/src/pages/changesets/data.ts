@@ -1,8 +1,14 @@
-import { annotateDiffField } from '@/components/diff/fieldMetadata';
 import type { Change, Preview, Risk } from '@/api/types';
+import { annotateDiffField } from '@/components/diff/fieldMetadata';
 export interface ChangesetItem {
   itemId: number;
   seq: number;
+  undoGroup?: string;
+  errorCode?: number;
+  conflictFields?: string[];
+  rolledBackAt?: string;
+  rolledBackBy?: string;
+  rollbackChangesetId?: string;
   capability: string;
   entity: string;
   entityId: string;
@@ -31,6 +37,7 @@ export interface Changeset {
   rolledBackBy?: string;
   rollbackOf?: string;
   rollbackChangesetId?: string;
+  rollbackChangesetIds?: string[];
   items?: ChangesetItem[];
 }
 export function changesetPreview(set: Changeset): Preview {
@@ -67,4 +74,55 @@ export function changesetPreview(set: Changeset): Preview {
     reversible: true,
     risk: set.risk,
   };
+}
+
+export interface RollbackPreview extends Preview {
+  confirmationHash: string;
+  selection?: {
+    itemIds: number[];
+    total: number;
+    remaining: number;
+    alreadyRolledBack: number;
+  };
+  changes?: (Change & {
+    itemId?: number;
+    status?: string;
+    conflictFields?: string[];
+  })[];
+}
+export function selectableItem(item: ChangesetItem): boolean {
+  return item.op !== 'skip' && item.status !== 'rolled_back';
+}
+/** Selecting or deselecting any member selects or deselects its whole undo group. */
+export function updateRollbackSelection(
+  items: ChangesetItem[],
+  previous: number[],
+  next: number[],
+): number[] {
+  const selected = new Set(next);
+  const removedGroups = new Set(
+    items
+      .filter(
+        (item) => previous.includes(item.itemId) && !selected.has(item.itemId),
+      )
+      .map((item) => item.undoGroup)
+      .filter(Boolean),
+  );
+  for (const item of items) {
+    if (
+      !selectableItem(item) ||
+      (item.undoGroup && removedGroups.has(item.undoGroup))
+    )
+      selected.delete(item.itemId);
+  }
+  const groups = new Set(
+    items
+      .filter((item) => selected.has(item.itemId))
+      .map((item) => item.undoGroup)
+      .filter(Boolean),
+  );
+  for (const item of items)
+    if (selectableItem(item) && item.undoGroup && groups.has(item.undoGroup))
+      selected.add(item.itemId);
+  return [...selected].sort((a, b) => a - b);
 }
