@@ -110,18 +110,27 @@ function ProtectedApplication() {
 
   const routes = useMemo<RouteObject[]>(() => {
     const pages = flattenPages(menus);
+    const home = pages.find((entry) => entry.path === '/');
     const seen = new Set<string>();
     return [
       {
         path: '/',
         element: <BasicLayout />,
         children: [
-          { index: true, element: <Navigate to={firstPage(menus)} replace /> },
+          {
+            index: true,
+            element: home?.component ? (
+              page(home.component)
+            ) : (
+              <Navigate to={firstPage(menus)} replace />
+            ),
+          },
           ...pages
             .filter((entry) => {
               if (
                 entry.path === '/' ||
                 entry.path === '/login' ||
+                entry.path === '/403' ||
                 seen.has(entry.path)
               )
                 return false;
