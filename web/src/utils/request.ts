@@ -77,6 +77,7 @@ const DEDUPE_WINDOW_MS = 500;
 
 function keyOf(config: AxiosRequestConfig): string {
   return [
+    auth.get(),
     config.method,
     config.url,
     JSON.stringify(config.params ?? {}),
@@ -107,14 +108,26 @@ http.interceptors.response.use(
     if (body?.code === Code.OK) {
       return body.data as never;
     }
-    throw new ApiError(body?.code ?? Code.InternalError, body?.msg ?? '请求失败', body?.data);
+    throw new ApiError(
+      body?.code ?? Code.InternalError,
+      body?.msg ?? '请求失败',
+      body?.data,
+    );
   },
-  (error: AxiosError<Envelope>) => {
+  async (error: AxiosError<Envelope | Blob>) => {
     const status = error.response?.status;
-    const body = error.response?.data;
-    const code = body?.code ?? status ?? Code.InternalError;
-    const msg = body?.msg ?? error.message ?? '网络异常';
-    throw new ApiError(code, msg, body?.data);
+    let body = error.response?.data;
+    if (body instanceof Blob) {
+      try {
+        body = JSON.parse(await body.text()) as Envelope;
+      } catch {
+        body = undefined;
+      }
+    }
+    const envelope = body as Envelope | undefined;
+    const code = envelope?.code ?? status ?? Code.InternalError;
+    const msg = envelope?.msg ?? error.message ?? '网络异常';
+    throw new ApiError(code, msg, envelope?.data);
   },
 );
 
@@ -122,6 +135,10 @@ http.interceptors.response.use(
 export interface CallOptions extends AxiosRequestConfig {
   /** Suppress the automatic message.error toast; the caller handles it. */
   silent?: boolean;
+  /** Login failures belong to the form and must not invalidate another session. */
+  ignoreUnauthorized?: boolean;
+  /** Disable for one-time challenges such as captcha generation. */
+  dedupe?: boolean;
 }
 
 /**
@@ -132,32 +149,42 @@ export interface CallOptions extends AxiosRequestConfig {
  * link to the page where a human can perform the operation.
  */
 export async function request<T = unknown>(config: CallOptions): Promise<T> {
-  const { silent, ...rest } = config;
+  const { silent, ignoreUnauthorized, dedupe = true, ...rest } = config;
+  const sessionToken = auth.get();
   const key = keyOf(rest);
-  const existing = inflight.get(key);
+  const existing = dedupe ? inflight.get(key) : undefined;
   if (existing) return existing as Promise<T>;
 
   const promise = (http.request(rest) as unknown as Promise<T>)
     .catch((err: unknown) => {
       if (err instanceof ApiError) {
-        handle(err, silent);
+        if (sessionToken === auth.get())
+          handle(err, silent, ignoreUnauthorized);
       }
       throw err;
     })
     .finally(() => {
-      setTimeout(() => inflight.delete(key), DEDUPE_WINDOW_MS);
+      setTimeout(() => {
+        if (inflight.get(key) === promise) inflight.delete(key);
+      }, DEDUPE_WINDOW_MS);
     });
 
-  inflight.set(key, promise);
+  if (dedupe) inflight.set(key, promise);
   return promise;
 }
 
-function handle(err: ApiError, silent?: boolean) {
+function handle(err: ApiError, silent?: boolean, ignoreUnauthorized?: boolean) {
   switch (err.code) {
     case Code.Unauthorized:
+      if (ignoreUnauthorized) {
+        if (!silent) message.error(err.message || '登录失败');
+        return;
+      }
       auth.clear();
       if (!location.pathname.startsWith('/login')) {
-        location.replace(`/login?redirect=${encodeURIComponent(location.pathname)}`);
+        location.replace(
+          `/login?redirect=${encodeURIComponent(location.pathname + location.search + location.hash)}`,
+        );
       }
       return;
     case Code.Forbidden:
@@ -193,12 +220,25 @@ export async function download(
   data?: unknown,
   fallbackName = 'export.xlsx',
 ): Promise<void> {
-  const response = await http.request({
-    method: 'POST',
-    url,
-    data,
-    responseType: 'blob',
-  });
+  const sessionToken = auth.get();
+  const response = await http
+    .request({
+      method: 'POST',
+      url,
+      data,
+      responseType: 'blob',
+    })
+    .catch((error: unknown) => {
+      if (error instanceof ApiError && sessionToken === auth.get())
+        handle(error);
+      throw error;
+    });
+  if ((response.data as Blob).type.includes('json')) {
+    const body = JSON.parse(await (response.data as Blob).text()) as Envelope;
+    const error = new ApiError(body.code, body.msg, body.data);
+    if (sessionToken === auth.get()) handle(error);
+    throw error;
+  }
   const disposition = String(response.headers?.['content-disposition'] ?? '');
   const name = parseFilename(disposition) ?? fallbackName;
 

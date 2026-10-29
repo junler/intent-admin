@@ -63,8 +63,17 @@ func newSeedCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "seed",
 		Short: "写入初始数据（管理员、角色、菜单、字典、参数）",
-		RunE: func(*cobra.Command, []string) error {
-			return notImplemented("Phase 1", "种子数据")
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			db, err := openSQL(cfg)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = db.Close() }()
+			if err := migrations.Seed(cmd.Context(), db); err != nil {
+				return err
+			}
+			cmd.Println("初始数据已补齐；已有密码、配置和菜单保持不变")
+			return nil
 		},
 	}
 }
