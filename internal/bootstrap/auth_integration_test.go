@@ -126,8 +126,8 @@ func TestAuthenticationIntegration(t *testing.T) {
 		t.Fatal("password leaked in user info")
 	}
 	routes := expect("GET", "/getRouters", adminToken, nil, 200, 200)["data"].([]any)
-	if len(routes) != 2 {
-		t.Fatalf("expected existing demo/capability menus, got %v", routes)
+	if len(routes) < 2 {
+		t.Fatalf("expected authorized menus, got %v", routes)
 	}
 	expect("GET", "/demo/item/list", adminToken, nil, 200, 200)
 
@@ -151,7 +151,24 @@ func TestAuthenticationIntegration(t *testing.T) {
 	limited := login(limitedName, "123456")
 	expect("GET", "/demo/item/list", limited, nil, 403, 403)
 	menus := expect("GET", "/getRouters", limited, nil, 200, 200)["data"].([]any)
-	if len(menus) != 0 {
+	var hasManagement func([]any) bool
+	hasManagement = func(routes []any) bool {
+		for _, raw := range routes {
+			route := raw.(map[string]any)
+			if route["hidden"] == true {
+				continue
+			}
+			if children, ok := route["children"].([]any); ok {
+				if hasManagement(children) {
+					return true
+				}
+				continue
+			}
+			return true
+		}
+		return false
+	}
+	if hasManagement(menus) {
 		t.Fatalf("ungranted menus: %v", menus)
 	}
 

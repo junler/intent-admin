@@ -8,6 +8,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/junler/intent-admin/internal/config"
+	"github.com/junler/intent-admin/internal/dbx"
+	"github.com/junler/intent-admin/internal/feature/resources"
+	"github.com/junler/intent-admin/internal/pkg/secret"
 	"github.com/junler/intent-admin/migrations"
 )
 
@@ -42,7 +45,7 @@ func migrateActionCmd(name, short string, action func(*sql.DB) error) *cobra.Com
 	return &cobra.Command{
 		Use:   name,
 		Short: short,
-		RunE: func(*cobra.Command, []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			db, err := openSQL(cfg)
 			if err != nil {
 				return err
@@ -85,11 +88,24 @@ func newRekeyCmd() *cobra.Command {
 		Short: "轮换 app.encrypt_key（重新加密库中的模型 Key 与存储 Secret）",
 		Long: `用旧密钥解密、用配置中的新密钥重新加密 sys_ai_provider 与 sys_storage_config
 里的凭证。必须在旧密钥仍在手上时执行；密钥一旦丢失，凭证无法恢复，只能重新填写。`,
-		RunE: func(*cobra.Command, []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if oldKey == "" {
 				return fmt.Errorf("必须通过 --old-key 提供旧密钥")
 			}
-			return notImplemented("Phase 3", "密钥轮换")
+			oldCipher, err := secret.New(oldKey)
+			if err != nil {
+				return err
+			}
+			newCipher, err := secret.New(cfg.App.EncryptKey)
+			if err != nil {
+				return err
+			}
+			db, err := dbx.Open(cfg)
+			if err != nil {
+				return err
+			}
+			defer dbx.Close(db)
+			return resources.Rekey(cmd.Context(), db, oldCipher, newCipher)
 		},
 	}
 	cmd.Flags().StringVar(&oldKey, "old-key", "", "旧的 app.encrypt_key")

@@ -34,6 +34,15 @@ func (e *Entry) HasDryRun() bool { return e.dryRun != nil }
 // HasUndo reports whether compensation is available.
 func (e *Entry) HasUndo() bool { return e.undo != nil }
 
+// Undo replays trusted persisted compensation data. Callers must authorise the
+// rollback and check current fields before entering this method.
+func (e *Entry) Undo(ctx context.Context, raw json.RawMessage) error {
+	if e.undo == nil {
+		return fmt.Errorf("功能 %s 不支持回滚", e.Name)
+	}
+	return e.undo(ctx, raw)
+}
+
 // VisibleTo reports whether this capability should appear in the catalogue for
 // a given entry point and risk ceiling.
 //
@@ -157,17 +166,17 @@ func Search(src Source, perms []string, maxRisk Risk, keyword string, limit int)
 
 // Descriptor is the catalogue projection handed to the AI and to MCP clients.
 type Descriptor struct {
-	Name        string     `json:"name"`
-	Summary     string     `json:"summary"`
-	Tags        []string   `json:"tags,omitempty"`
-	Risk        Risk       `json:"risk"`
-	Mutating    bool       `json:"mutating"`
-	Reversible  bool       `json:"reversible"`
-	NeedConfirm bool       `json:"needConfirm"`
-	Method      string     `json:"method,omitempty"`
-	Path        string     `json:"path,omitempty"`
-	Examples    []Example  `json:"examples,omitempty"`
-	InputSchema any        `json:"inputSchema,omitempty"`
+	Name        string    `json:"name"`
+	Summary     string    `json:"summary"`
+	Tags        []string  `json:"tags,omitempty"`
+	Risk        Risk      `json:"risk"`
+	Mutating    bool      `json:"mutating"`
+	Reversible  bool      `json:"reversible"`
+	NeedConfirm bool      `json:"needConfirm"`
+	Method      string    `json:"method,omitempty"`
+	Path        string    `json:"path,omitempty"`
+	Examples    []Example `json:"examples,omitempty"`
+	InputSchema any       `json:"inputSchema,omitempty"`
 }
 
 // Brief is the compact form used by list_capabilities, where dozens of entries

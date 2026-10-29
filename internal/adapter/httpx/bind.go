@@ -114,4 +114,3 @@ func findPaginateQuery(v reflect.Value) *paginate.Query {
 	}
 	return nil
 }
-

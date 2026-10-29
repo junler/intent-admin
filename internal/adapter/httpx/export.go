@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/url"
 	"reflect"
-	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 
 	"github.com/junler/intent-admin/internal/capability"
 	"github.com/junler/intent-admin/internal/pkg/errcode"
+	"github.com/junler/intent-admin/internal/pkg/exportfmt"
 	"github.com/junler/intent-admin/internal/pkg/response"
 )
 
@@ -68,13 +68,35 @@ func exportHandler(e *capability.Entry, opts Options) gin.HandlerFunc {
 			return
 		}
 		if opts.ExportMaxRows > 0 && len(rows) >= opts.ExportMaxRows {
+			if opts.AsyncExport != nil {
+				queued, err := opts.AsyncExport(ctx, e, in)
+				if err != nil {
+					response.Fail(c, err)
+					return
+				}
+				response.OK(c, queued)
+				return
+			}
 			response.Fail(c, errcode.BadRequestf(
 				"符合条件的数据超过 %d 条，请缩小筛选范围，或使用后台导出",
 				opts.ExportMaxRows))
 			return
 		}
 
-		f, err := render(e, rows, opts)
+		renderOptions := opts
+		if opts.DictLookup != nil {
+			labels := map[string]string{}
+			renderOptions.DictLookup = func(dictType, value string) string {
+				key := dictType + "\x00" + value
+				if label, ok := labels[key]; ok {
+					return label
+				}
+				label := opts.DictLookup(dictType, value)
+				labels[key] = label
+				return label
+			}
+		}
+		f, err := render(e, rows, renderOptions)
 		if err != nil {
 			response.Fail(c, err)
 			return
@@ -226,7 +248,7 @@ func cellValue(row map[string]any, col capability.ExportColumn, opts Options) an
 	case capability.FormatDate:
 		return formatTime(v, "2006-01-02")
 	case capability.FormatMoney:
-		return formatMoney(v)
+		return exportfmt.Money(v)
 	default:
 		return v
 	}
@@ -273,38 +295,6 @@ func formatTime(v any, layout string) any {
 	default:
 		return v
 	}
-}
-
-// formatMoney converts integer cents to a yuan string. Money is kept as
-// integer cents everywhere in the backend; only the presentation layer divides.
-func formatMoney(v any) any {
-	var cents int64
-	switch n := v.(type) {
-	case int:
-		cents = int64(n)
-	case int32:
-		cents = int64(n)
-	case int64:
-		cents = n
-	case float64:
-		cents = int64(n)
-	case string:
-		parsed, err := strconv.ParseInt(n, 10, 64)
-		if err != nil {
-			return n
-		}
-		cents = parsed
-	default:
-		return v
-	}
-	return fmt.Sprintf("%d.%02d", cents/100, abs64(cents%100))
-}
-
-func abs64(v int64) int64 {
-	if v < 0 {
-		return -v
-	}
-	return v
 }
 
 // extractRows pulls the row slice out of a capability's output. The output is

@@ -120,7 +120,7 @@ func CORS(cfg CORSConfig) gin.HandlerFunc {
 		h.Set("Access-Control-Allow-Credentials", "true")
 		h.Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
 		h.Set("Access-Control-Allow-Headers", "Authorization,Content-Type,"+RequestIDHeader)
-		h.Set("Access-Control-Expose-Headers", "Content-Disposition,"+RequestIDHeader)
+		h.Set("Access-Control-Expose-Headers", "Content-Disposition,X-Changeset-Id,"+RequestIDHeader)
 		h.Set("Access-Control-Max-Age", "600")
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)

@@ -60,7 +60,9 @@ storage:
   bootstrap:
     driver: local         # local | s3
     local_dir: ./uploads
-    base_url: http://localhost:8080/uploads
+    base_url: http://localhost:8080/api/public/files
+    url_mode: static      # local: static；私有 S3 桶使用 presigned
+    presign_expire_sec: 3600
     endpoint: ""          # driver=s3 时填，如 minio:9000
     region: ""
     bucket: ""

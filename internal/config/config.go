@@ -7,6 +7,7 @@ package config
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -111,16 +112,18 @@ type Storage struct {
 // StorageBootstrap seeds sys_storage_config on first start when the table is
 // empty. Afterwards the database is authoritative — see plan §4B.
 type StorageBootstrap struct {
-	Driver      string `mapstructure:"driver"` // local | s3
-	LocalDir    string `mapstructure:"local_dir"`
-	BaseURL     string `mapstructure:"base_url"`
-	Endpoint    string `mapstructure:"endpoint"`
-	Region      string `mapstructure:"region"`
-	Bucket      string `mapstructure:"bucket"`
-	AccessKeyID string `mapstructure:"access_key_id"`
-	SecretKey   string `mapstructure:"secret_key"`
-	UseSSL      bool   `mapstructure:"use_ssl"`
-	PathStyle   bool   `mapstructure:"path_style"`
+	Driver           string `mapstructure:"driver"` // local | s3
+	LocalDir         string `mapstructure:"local_dir"`
+	BaseURL          string `mapstructure:"base_url"`
+	URLMode          string `mapstructure:"url_mode"`
+	PresignExpireSec int    `mapstructure:"presign_expire_sec"`
+	Endpoint         string `mapstructure:"endpoint"`
+	Region           string `mapstructure:"region"`
+	Bucket           string `mapstructure:"bucket"`
+	AccessKeyID      string `mapstructure:"access_key_id"`
+	SecretKey        string `mapstructure:"secret_key"`
+	UseSSL           bool   `mapstructure:"use_ssl"`
+	PathStyle        bool   `mapstructure:"path_style"`
 }
 
 type AI struct {
@@ -194,6 +197,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("storage.bootstrap.driver", "local")
 	v.SetDefault("storage.bootstrap.local_dir", "./uploads")
 	v.SetDefault("storage.bootstrap.base_url", "http://localhost:8080/uploads")
+	v.SetDefault("storage.bootstrap.url_mode", "static")
+	v.SetDefault("storage.bootstrap.presign_expire_sec", 3600)
 	v.SetDefault("storage.bootstrap.use_ssl", true)
 	v.SetDefault("storage.bootstrap.path_style", true)
 
@@ -225,6 +230,7 @@ func Load(path string) (*Config, error) {
 	v.SetEnvPrefix(EnvPrefix)
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
+	bindEnvironment(v, reflect.TypeOf(Config{}), "")
 
 	if path != "" {
 		v.SetConfigFile(path)
@@ -300,7 +306,7 @@ func (c *Config) Validate() error {
 func (c *Config) Warnings() []string {
 	var out []string
 	if c.AI.MaxRisk == "critical" {
-		out = append(out, "ai.max_risk=critical：AI 可执行删角色、改超管这类不可挽回的操作，强烈建议改回 high")
+		out = append(out, "ai.max_risk=critical：critical 操作仍需人工在页面执行，建议使用 high 明确自动化边界")
 	}
 	if c.MCP.Enabled && c.MCP.MaxRisk != "low" {
 		out = append(out, fmt.Sprintf("mcp.max_risk=%s：持有访问令牌的外部客户端可以修改数据，请确认这是你要的", c.MCP.MaxRisk))
@@ -309,4 +315,25 @@ func (c *Config) Warnings() []string {
 		out = append(out, "task.scheduler=true：多副本部署时只能有一个副本开启，否则定时任务会重复入队")
 	}
 	return out
+}
+
+// Viper only unmarshals known keys. Bind every declared leaf so deployments
+// using environment variables alone can set secrets and bootstrap fields even
+// when those fields intentionally have no default value.
+func bindEnvironment(v *viper.Viper, t reflect.Type, prefix string) {
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		key := field.Tag.Get("mapstructure")
+		if key == "" || key == "-" {
+			continue
+		}
+		if prefix != "" {
+			key = prefix + "." + key
+		}
+		if field.Type.Kind() == reflect.Struct {
+			bindEnvironment(v, field.Type, key)
+		} else {
+			_ = v.BindEnv(key)
+		}
+	}
 }

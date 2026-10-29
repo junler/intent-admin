@@ -1,13 +1,10 @@
 name: CI
-
 on:
   push:
     branches: [main]
   pull_request:
-
 permissions:
   contents: read
-
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -28,6 +25,9 @@ jobs:
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      INTENT_ADMIN_DB_PASSWORD: integration-test-only
+      INTENT_ADMIN_REDIS_ADDR: 127.0.0.1:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -36,26 +36,62 @@ jobs:
           cache: true
       - run: go test ./...
       - run: go vet ./...
-      - name: Authentication integration
+      - name: Create isolated integration databases
+        env:
+          PGPASSWORD: integration-test-only
+        run: |
+          for database in intent_system_integration intent_resources_integration intent_tasks_integration intent_plan_integration; do
+            psql -h 127.0.0.1 -U postgres -d postgres -c "CREATE DATABASE ${database}"
+          done
+      - name: Authentication and HTTP integration
         run: go test ./internal/bootstrap -run TestAuthenticationIntegration -v -count=1
         env:
           INTENT_ADMIN_INTEGRATION: '1'
           INTENT_ADMIN_DB_NAME: intent_admin_integration
-          INTENT_ADMIN_DB_PASSWORD: integration-test-only
+      - name: System policies integration
+        run: go test ./internal/feature/system -v -count=1
+        env:
+          INTENT_ADMIN_SYSTEM_INTEGRATION: '1'
+          INTENT_ADMIN_DB_NAME: intent_system_integration
+      - name: Configuration and files integration
+        run: go test ./internal/feature/resources -v -count=1
+        env:
+          INTENT_ADMIN_RESOURCE_INTEGRATION: '1'
+          INTENT_ADMIN_DB_NAME: intent_resources_integration
+          INTENT_ADMIN_DB_PORT: '5432'
+      - name: Persisted plans and rollback integration
+        run: go test ./internal/plan -v -count=1
+        env:
+          INTENT_ADMIN_TEST_DSN: host=127.0.0.1 port=5432 user=postgres password=integration-test-only dbname=intent_plan_integration sslmode=disable
+      - name: Queue, scheduler and asynchronous export integration
+        run: go test ./internal/task -v -count=1
+        env:
+          INTENT_ADMIN_TASK_INTEGRATION: '1'
+          INTENT_ADMIN_DB_NAME: intent_tasks_integration
       - run: go build ./...
+      - name: Check formatting
+        run: test -z "$(gofmt -l $(git ls-files '*.go'))"
 
   frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      - run: pnpm --dir web install --frozen-lockfile
-      - run: pnpm --dir web test
-      - run: pnpm --dir web build
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - run: npm --prefix web test
+      - run: npm --prefix web run typecheck
+      - run: npm --prefix web run build
+
+  pull-request-title:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a Conventional Commit title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          node -e 'if (!/^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?(!)?: .+/.test(process.env.PR_TITLE)) { console.error("Use a Conventional Commit PR title"); process.exit(1); }'

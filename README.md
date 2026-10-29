@@ -1,6 +1,6 @@
 <div align="center">
 
-# intent-admin
+# Intent
 
 **AI 原生的 Go 后台管理系统。**
 
@@ -18,7 +18,7 @@
 
 > ⚠️ 本项目处于开发阶段，功能与 API 尚未稳定。完整实施规格见 [`docs/implementation-plan.md`](docs/implementation-plan.md)。
 
-> **当前进度：Phase 1 认证、权限与风险门槛已接入。** 已实现登录、验证码、Redis 在线会话、权限合并、动态菜单与按钮权限，以及 Capability、HTTP/OpenAPI、分页、Excel 导出和修改/删除预览。21 张系统表及初始数据已提供迁移；变更历史持久化、业务管理页面、AI、MCP 和异步任务继续按计划实施。下文完整功能描述为目标规划，当前运行方式见「快速开始」。
+> **v1 功能已接入：** 登录与权限、系统管理、变更历史与回滚、模型与存储配置、文件管理、监控与定时任务、异步导出、知识库、AI 计划和 MCP。前端以官方 [Ant Design Pro](https://github.com/ant-design/ant-design-pro.git) 为基础，采用 Umi Max、ProLayout、ProTable 和 ProForm；所有业务页面连接真实后端。
 
 ---
 
@@ -107,7 +107,7 @@
 
 | 用途 | 选型 | 说明 |
 | --- | --- | --- |
-| 语言 | [Go](https://go.dev/) 1.25+ | Capability 层依赖泛型 |
+| 语言 | [Go](https://go.dev/) 1.26+ | Capability 层依赖泛型 |
 | Web 框架 | [gin](https://github.com/gin-gonic/gin) | |
 | ORM | [GORM](https://gorm.io/) + `driver/postgres` | |
 | 数据库 | [PostgreSQL](https://www.postgresql.org/) 14+ | changeset 快照用 `jsonb` |
@@ -117,12 +117,11 @@
 | MCP | [modelcontextprotocol/go-sdk](https://github.com/modelcontextprotocol/go-sdk) | MCP 官方 Go SDK |
 | CLI | [cobra](https://github.com/spf13/cobra) | 单二进制多子命令 |
 | 配置 | [viper](https://github.com/spf13/viper) | yaml + 环境变量 |
-| 工具库 | [lancet](https://github.com/duke-git/lancet) | 700+ 工具函数，统一复用不重复造轮子 |
 | Excel 导出 | [excelize](https://github.com/xuri/excelize) | 列表导出与导入模板，大数据量用 StreamWriter |
 | 对象存储 | [minio-go](https://github.com/minio/minio-go) | MinIO 与所有 S3 兼容服务 |
 | 密钥加密 | 标准库 AES-256-GCM | 加密存储模型 Key 与存储 Secret |
 | 数据库迁移 | [goose](https://github.com/pressly/goose) | 嵌入式版本化 SQL |
-| JWT | [golang-jwt](https://github.com/golang-jwt/jwt) | |
+| JWT | 标准库 HMAC-SHA256 | 签名会话 UUID，Redis TTL 控制到期与吊销 |
 | 参数校验 | [validator](https://github.com/go-playground/validator) | 结构体 tag 校验 |
 | JSON Schema | [jsonschema-go](https://github.com/google/jsonschema-go) | OpenAPI / AI / MCP 共用 |
 | 主机指标 | [gopsutil](https://github.com/shirou/gopsutil) | 服务监控 |
@@ -134,11 +133,13 @@
 
 | 用途 | 选型 |
 | --- | --- |
-| 构建 | [Vite](https://vitejs.dev/) 7+ · [TypeScript](https://www.typescriptlang.org/) 5+ |
+| Admin 工程 | **[Ant Design Pro](https://github.com/ant-design/ant-design-pro.git) v6**，保留 [MIT 许可](web/ANT_DESIGN_PRO_LICENSE) |
+| 构建与运行时 | [Umi Max](https://umijs.org/) v4 · [TypeScript](https://www.typescriptlang.org/) 5+ |
+| 后台组件 | [ProComponents](https://procomponents.ant.design/) v3：ProLayout / ProTable / ProForm / PageContainer |
 | 框架 | [React](https://react.dev/) 19 |
 | UI 组件 | [Ant Design](https://ant.design/) v6 · [@ant-design/icons](https://ant.design/components/icon) |
 | CSS | [Tailwind CSS](https://tailwindcss.com/) v4 |
-| 路由 | [React Router](https://reactrouter.com/) v7 |
+| 路由与权限 | Umi Max 路由、initialState / access，后端菜单驱动的组件注册表 |
 | 状态管理 | [zustand](https://github.com/pmndrs/zustand) |
 | HTTP | [axios](https://axios-http.com/) |
 | 图表 | [ECharts](https://echarts.apache.org/) |
@@ -148,11 +149,11 @@
 
 | 用途 | 选型 |
 | --- | --- |
-| 代码检查 | [golangci-lint](https://golangci-lint.run/) · ESLint · Prettier |
-| 测试 | Go `testing` · [testcontainers-go](https://golang.testcontainers.org/) · [Vitest](https://vitest.dev/) |
+| 代码检查 | [golangci-lint](https://golangci-lint.run/) · Biome · TypeScript |
+| 测试 | Go `testing` / `httptest` · PostgreSQL / Redis / Asynq 集成测试 · [Vitest](https://vitest.dev/) · Playwright |
 | 容器 | Docker 多阶段构建 · distroless 运行镜像 |
 | 发布 | [GoReleaser](https://goreleaser.com/) · GitHub Actions · GHCR 多架构镜像 |
-| 热重载 | [air](https://github.com/air-verse/air) |
+| 前端开发 | Umi Max dev server，代理真实 `/api`；npm lockfile |
 
 ## 项目结构
 
@@ -177,16 +178,28 @@ intent-admin/
 │   ├── task/               Asynq client/server、处理器注册表
 │   └── web/                前端产物嵌入（embed.FS）
 ├── migrations/             版本化 SQL
-└── web/                    前端源码（Vite + React）
+└── web/                    Ant Design Pro 前端（Umi Max + React + ProComponents）
 ```
 
 依赖方向严格单向：`feature → capability → service → model`，三个 adapter 只依赖 `capability`。
+
+## 后台界面
+
+前端基于 [Ant Design Pro](https://github.com/ant-design/ant-design-pro.git)，下图来自连接真实后端的浏览器验收。
+
+![Ant Design Pro 后台首页](docs/screenshots/dashboard.png)
+
+![用户管理与权限操作](docs/screenshots/users.png)
+
+![AI 计划与结构化差异](docs/screenshots/ai-plan.png)
+
+AI 计划截图使用受控测试模型生成，确认、实际写入、变更记录和回滚均走真实服务链路。
 
 ## 快速开始
 
 ### 本地开发
 
-前置：Go 1.26+、Node.js 22+、pnpm 10+、PostgreSQL 14+、Redis 6+。先启动 PostgreSQL 和 Redis。
+前置：Go 1.26+、Node.js 22+、npm、PostgreSQL 14+、Redis 6+。先启动 PostgreSQL 和 Redis。
 
 ```bash
 cp configs/config.example.yaml configs/config.yaml
@@ -200,17 +213,17 @@ make migrate    # 建表，写入管理员、当前菜单、字典、参数和�
 make dev        # 后端 :8080 + 前端 :5173（自动代理 /api）
 ```
 
-打开 http://localhost:5173，使用初始账号 `admin` / `123456` 和图形验证码登录。侧边栏由有效权限派生，示例条目页可筛选、分页、导出、预览后启用/停用或删除条目。能力浏览器展示自动生成的接口目录。部署时应替换初始管理员密码（当前尚无个人改密页面）。
+打开 http://localhost:5173，进入 Ant Design Pro 登录页，使用初始账号 `admin` / `123456` 和图形验证码登录。登录后进入首页大盘。侧边栏由有效权限派生，各管理页可筛选、分页、导出、预览后启用/停用或删除条目。能力浏览器展示自动生成的接口目录。首次登录后请进入右上角个人中心修改初始管理员密码。个人中心也提供头像和访问令牌管理入口。
 
 健康检查：http://localhost:8080/healthz；API 文档：http://localhost:8080/swagger；OpenAPI：http://localhost:8080/openapi.json。
 
-开发和生产环境均需要登录。验证码默认开启，公开注册默认关闭，由 `sys_config` 中的 `sys.account.captchaEnabled` / `sys.account.registerUser` 控制；注册账号不自动获得角色或权限。`migrate seed` 可补齐缺失的种子数据，保留已有密码、设置和菜单。当前仅初始化已实现页面的菜单。
+开发和生产环境均需要登录。验证码默认开启，公开注册默认关闭，由 `sys_config` 中的 `sys.account.captchaEnabled` / `sys.account.registerUser` 控制；注册账号不自动获得角色或权限。`migrate seed` 可补齐缺失的种子数据，保留已有密码、设置和菜单。迁移会初始化完整后台菜单和操作权限。
 
 JWT 携带签名后的会话 UUID，由 Redis `login_token:{uuid}` 的 TTL 控制有效期；JWT 不另设固定 `exp`，以支持刷新时保持原 token。剩余 TTL 少于 `jwt.expire` 的三分之一时，`POST /api/refreshToken` 延长会话；删除对应 Redis key 后立即返回 401。权限快照缓存 30 分钟，后续角色、菜单和用户授权写入必须调用 `InvalidatePermissions`。浏览器操作的风险上限为 critical，AI/MCP 仍受全局和主体风险上限限制。
 
-同账号密码连续错误 5 次锁定 10 分钟；登录/注册按 IP 共用每分钟 20 次限额，验证码每分钟 60 次。默认不信任转发 IP 头；反向代理部署时按连接地址限流。变更历史及回滚入口尚未实现；`worker`、`mcp` 和 `migrate rekey` 子命令仍会提示尚未实现。
+同账号密码连续错误 5 次锁定 10 分钟；登录/注册按 IP 共用每分钟 20 次限额，验证码每分钟 60 次。默认不信任转发 IP 头；反向代理部署时按连接地址限流。`serve` 内嵌 worker 与动态调度器；`worker` 可独立部署，`mcp` 提供 stdio 接入，`migrate rekey` 可事务性轮换数据库中的模型和存储密钥。
 
-`make test` 运行 Go 单元测试，`pnpm --dir web test` 运行前端测试。真实 PostgreSQL/Redis 集成测试需使用以 `_integration` 结尾的独立测试数据库：
+`make test` 运行 Go 单元测试，`npm --prefix web test` 运行前端测试。真实 PostgreSQL/Redis 集成测试需使用以 `_integration` 结尾的独立测试数据库：
 
 ```bash
 INTENT_ADMIN_INTEGRATION=1 \
@@ -220,6 +233,21 @@ go test ./internal/bootstrap -run TestAuthenticationIntegration -v
 
 数据库与 Redis 的其他连接参数可通过 `INTENT_ADMIN_DB_*`、`INTENT_ADMIN_REDIS_*` 覆盖。集成测试会迁移测试数据库，并使用独立 Redis key 前缀，覆盖验证码、登录/注册、权限 403、会话刷新/吊销及风险 423。
 
+### Ant Design Pro 前端
+
+前端目录为 [`web/`](web/)，工程基于官方 Ant Design Pro v6（上游提交 `42f2cb1d303380909ea04c73b5e60679d09c321a`）改造。`config/config.ts` 管理 Umi Max 配置，`src/app.tsx` 接入真实登录态与 ProLayout，`src/access.ts` 定义权限，页面使用 ProTable / ProForm。构建时生成组件注册表，运行时只加载后端授权的菜单页面。
+
+```bash
+cd web
+npm ci              # 安装并生成 Umi 运行时代码
+npm run dev         # http://localhost:5173，API 代理至 :8080
+npm run typecheck
+npm test
+npm run build       # 生成 dist/ 与 gzip 静态资源
+```
+
+主要页面：大盘；用户、角色、菜单、字典、参数、公告；个人中心与令牌；模型服务、存储配置、文件；在线用户、日志、缓存、服务监控、定时任务；变更历史与行为溯源；AI 会话和能力浏览器。顶栏全局输入框支持 `Cmd/Ctrl+K`，并携带当前筛选与选中项。
+
 ### 单二进制构建
 
 ```bash
@@ -228,6 +256,25 @@ make serve        # 启动 :8080，直接提供前端和 API
 ```
 
 打开 http://localhost:8080。产物 `bin/intent-admin` 已包含前端资源；运行时仍需配置文件（或环境变量）、PostgreSQL 和 Redis。
+
+### Docker Compose
+
+```bash
+cp .env.example .env
+# 编辑数据库、Redis、MinIO 密码，以及 JWT_SECRET / ENCRYPT_KEY。
+docker compose up --build -d
+```
+
+打开 http://localhost:8080。Compose 包含 PostgreSQL、Redis、从固定源码构建的 MinIO、桶初始化、迁移和应用。MinIO 公网地址与应用公网地址可分别配置，私有文件使用预签名链接；已有部署的存储配置不会被引导参数覆盖。
+
+### 接入模型并走通操作链路
+
+1. 进入「系统管理 → 模型服务」，选择 DeepSeek、火山方舟、通义、OpenAI 等预设，填写 Key 与模型并保存。
+2. 对已保存配置执行连通性测试，确认支持工具调用后启用并设为默认。错误 Key、工具调用不支持、网络不可达会分别提示。
+3. 在用户列表选中记录，通过顶栏描述操作；检查计划与 diff 后确认。可在「变更历史」查看影响字段和撤销操作。
+4. 在「存储配置」测试本地或 S3 / MinIO 配置，启用后可在文件管理上传；`presigned` 模式按原存储配置生成临时链接。
+
+实际模型调用需要你自己的服务商凭证。自动化测试使用受控的模型接口和 Eino ADK stub，不会消耗真实模型额度。
 
 ## 配置
 
@@ -282,7 +329,8 @@ intent-admin version
   "mcpServers": {
     "intent-admin": {
       "command": "intent-admin",
-      "args": ["mcp", "--config", "/path/to/config.yaml"]
+      "args": ["mcp", "--config", "/path/to/config.yaml"],
+      "env": { "INTENT_ADMIN_MCP_TOKEN": "iadm_你的个人访问令牌" }
     }
   }
 }
@@ -298,7 +346,7 @@ intent-admin version
 - **`mcp.max_risk` 默认 `low` 是有意的** —— 调高后持有令牌的外部 AI 客户端可以修改你的数据。服务端两步确认降低了风险但不消除。建议只在受控环境开启，并用令牌 `scopes` 与 `max_risk` 收窄范围。
 - **站内 AI 的写操作始终需要人工确认** —— 这不可通过配置关闭。Agent 在代码层面没有直接写数据的路径。
 - **`critical` 操作 AI 永远不能执行** —— 删角色、改超管、清空日志、修改权限只能人工在页面完成。
-- **`app.encrypt_key` 必须备份** —— 模型 API Key 与存储 Secret 用它加密后存库。密钥丢失则这些凭证全部不可恢复，只能重新填一遍。轮换用 `intent-admin migrate rekey --old-key=...`（需旧钥在手）。
+- **`jwt.secret` 和 `app.encrypt_key` 必须备份** —— 模型 API Key 与存储 Secret 用它加密后存库。密钥丢失则这些凭证全部不可恢复，只能重新填一遍。轮换用 `intent-admin migrate rekey --old-key=...`（需旧钥在手）。凭证回滚使用按保留期到期的 Redis 加密补偿记录，依赖 `jwt.secret`；轮换 JWT secret 会使已有会话及这类补偿记录失效。
 - **模型服务与存储配置不对 AI 开放** —— 这是硬约束，启动时有自检强制。原因：这两处含 `base_url` / `endpoint`，一旦 AI 能改，一次提示注入就能把全部会话数据与上传文件导向攻击者的服务器，而系统表面上毫无异常。
 - **访问令牌是提权面** —— 明文只在创建时显示一次，库中只存 SHA-256；令牌管理功能本身不通过 MCP 暴露。
 - **回滚不是时光机** —— changeset 回滚只还原本次变更涉及的字段，不能撤销级联影响。
@@ -309,14 +357,17 @@ intent-admin version
 
 ## 路线图
 
-- [ ] Capability 层、权限与风险门槛
-- [ ] Changeset 与一键回滚
-- [ ] 系统管理、监控、审计、定时任务
-- [ ] 知识库、Plan、AI Agent、Omnibox
-- [ ] MCP Server（HTTP + stdio）
-- [ ] 模型服务与存储配置（后台可配 + 密钥加密）
-- [ ] 大盘、文件管理、Excel 导出
-- [ ] 单二进制打包与发布流程
+- [x] Capability 层、权限与风险门槛
+- [x] Changeset 与一键回滚
+- [x] 系统管理、监控、审计、定时任务
+- [x] 知识库、Plan、AI Agent、Omnibox
+- [x] MCP Server（HTTP + stdio）
+- [x] 模型服务与存储配置（后台可配 + 密钥加密）
+- [x] 大盘、文件管理、Excel 导出
+- [x] 单二进制打包与发布流程
+
+以下为 v1 实施阶段以外的后续扩展：
+
 - [ ] 批量导入（xlsx，含逐行校验与整批回滚）
 - [ ] 界面 i18n（英文）
 - [ ] Plan 跨人审批流程
@@ -334,7 +385,7 @@ intent-admin version
 
 感谢这些项目，没有它们本项目不可能存在：
 
-[Eino](https://github.com/cloudwego/eino) · [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) · [gin](https://github.com/gin-gonic/gin) · [GORM](https://gorm.io/) · [Asynq](https://github.com/hibiken/asynq) · [cobra](https://github.com/spf13/cobra) · [viper](https://github.com/spf13/viper) · [lancet](https://github.com/duke-git/lancet) · [excelize](https://github.com/xuri/excelize) · [minio-go](https://github.com/minio/minio-go) · [goose](https://github.com/pressly/goose) · [React](https://react.dev/) · [Ant Design](https://ant.design/) · [Tailwind CSS](https://tailwindcss.com/) · [Vite](https://vitejs.dev/)
+[Eino](https://github.com/cloudwego/eino) · [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) · [gin](https://github.com/gin-gonic/gin) · [GORM](https://gorm.io/) · [Asynq](https://github.com/hibiken/asynq) · [cobra](https://github.com/spf13/cobra) · [viper](https://github.com/spf13/viper) · [lancet](https://github.com/duke-git/lancet) · [excelize](https://github.com/xuri/excelize) · [minio-go](https://github.com/minio/minio-go) · [goose](https://github.com/pressly/goose) · [React](https://react.dev/) · [Ant Design](https://ant.design/) · [Tailwind CSS](https://tailwindcss.com/) · [Ant Design Pro](https://pro.ant.design/) · [Umi](https://umijs.org/) · [ProComponents](https://procomponents.ant.design/)
 
 ## License
 

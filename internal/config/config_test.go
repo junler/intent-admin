@@ -26,3 +26,19 @@ func TestDSNRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentOnlyBootstrap(t *testing.T) {
+	t.Setenv("INTENT_ADMIN_JWT_SECRET", "environment-signing-secret")
+	t.Setenv("INTENT_ADMIN_APP_ENCRYPT_KEY", "0123456789abcdef0123456789abcdef")
+	t.Setenv("INTENT_ADMIN_DB_PASSWORD", "environment-db-password")
+	t.Setenv("INTENT_ADMIN_AI_BOOTSTRAP_VENDOR", "custom")
+	t.Setenv("INTENT_ADMIN_AI_BOOTSTRAP_MODEL", "environment-model")
+	t.Setenv("INTENT_ADMIN_STORAGE_BOOTSTRAP_SECRET_KEY", "environment-storage-secret")
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.JWT.Secret != "environment-signing-secret" || cfg.DB.Password != "environment-db-password" || cfg.AI.Bootstrap.Vendor != "custom" || cfg.AI.Bootstrap.Model != "environment-model" || cfg.Storage.Bootstrap.SecretKey != "environment-storage-secret" {
+		t.Fatal("environment-only configuration fields were not bound")
+	}
+}

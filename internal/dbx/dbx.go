@@ -138,11 +138,81 @@ func DBFrom(ctx context.Context, base *gorm.DB) *gorm.DB {
 // The business write and its changeset row commit together. An audit trail
 // that can diverge from the data it describes is worse than no audit trail,
 // because it invites false confidence.
+type afterCommitKey struct{}
+type commitQueue struct {
+	callbacks []func() error
+	rollback  []func(error)
+}
+
+// AfterCommit defers cache invalidation and external side effects until the
+// outer transaction commits. Outside a managed transaction it runs immediately.
+func AfterCommit(ctx context.Context, fn func()) {
+	_ = AfterCommitE(ctx, func() error { fn(); return nil })
+}
+
+// AfterCommitE defers a fallible side effect until commit, or executes it
+// immediately outside a managed transaction. A queued callback's error is
+// returned by the outer NewTxRunner after all committed callbacks are drained.
+func AfterCommitE(ctx context.Context, fn func() error) error {
+	if q, ok := ctx.Value(afterCommitKey{}).(*commitQueue); ok {
+		q.callbacks = append(q.callbacks, fn)
+		return nil
+	}
+	return fn()
+}
+
+// AfterRollback registers a notification for a managed transaction that is
+// rolled back, including a later rollback of its outer transaction.
+func AfterRollback(ctx context.Context, fn func(error)) {
+	if q, ok := ctx.Value(afterCommitKey{}).(*commitQueue); ok {
+		q.rollback = append(q.rollback, fn)
+	}
+}
+
 func NewTxRunner(db *gorm.DB) func(context.Context, func(context.Context) error) error {
 	return func(ctx context.Context, fn func(context.Context) error) error {
-		return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			return fn(WithTx(ctx, tx))
+		parent, nested := ctx.Value(afterCommitKey{}).(*commitQueue)
+		queue := &commitQueue{}
+		committed, notified := false, false
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				if !committed && !notified {
+					notified = true
+					cause := fmt.Errorf("事务因异常回滚")
+					for _, callback := range queue.rollback {
+						callback(cause)
+					}
+				}
+				panic(recovered)
+			}
+		}()
+		err := DBFrom(ctx, db).Transaction(func(tx *gorm.DB) error {
+			txCtx := context.WithValue(WithTx(ctx, tx), afterCommitKey{}, queue)
+			return fn(txCtx)
 		})
+		if err != nil {
+			notified = true
+			for _, callback := range queue.rollback {
+				callback(err)
+			}
+			return err
+		}
+		committed = true
+		if nested {
+			parent.callbacks = append(parent.callbacks, queue.callbacks...)
+			parent.rollback = append(parent.rollback, queue.rollback...)
+		} else {
+			var committedError error
+			for _, callback := range queue.callbacks {
+				if callbackError := callback(); callbackError != nil && committedError == nil {
+					committedError = callbackError
+				}
+			}
+			if committedError != nil {
+				return fmt.Errorf("数据库事务已提交，但提交后处理失败: %w", committedError)
+			}
+		}
+		return nil
 	}
 }
 

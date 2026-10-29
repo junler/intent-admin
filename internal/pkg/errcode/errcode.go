@@ -98,7 +98,7 @@ func From(err error) *Error {
 // Constructors for the common cases. Keep the messages user-facing and Chinese;
 // callers add detail via Wrap/WithDetail.
 
-func BadRequestf(format string, args ...any) *Error  { return Newf(BadRequest, format, args...) }
+func BadRequestf(format string, args ...any) *Error   { return Newf(BadRequest, format, args...) }
 func Unauthorizedf(format string, args ...any) *Error { return Newf(Unauthorized, format, args...) }
 func Forbiddenf(format string, args ...any) *Error    { return Newf(Forbidden, format, args...) }
 func NotFoundf(format string, args ...any) *Error     { return Newf(NotFound, format, args...) }

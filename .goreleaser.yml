@@ -1,0 +1,41 @@
+version: 2
+project_name: intent-admin
+before:
+  hooks:
+    - make build-web
+builds:
+  - id: intent-admin
+    main: .
+    binary: intent-admin
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/junler/intent-admin/internal/bootstrap.Version={{.Version}}
+      - -X github.com/junler/intent-admin/internal/bootstrap.Commit={{.Commit}}
+      - -X github.com/junler/intent-admin/internal/bootstrap.BuildTime={{.Date}}
+archives:
+  - id: binaries
+    ids: [intent-admin]
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - README.en.md
+      - SECURITY.md
+      - configs/config.example.yaml
+checksum:
+  name_template: checksums.txt
+changelog:
+  sort: asc
+  filters:
+    exclude: ['^docs:', '^test:', '^chore:']
+release:
+  draft: false
+  prerelease: auto

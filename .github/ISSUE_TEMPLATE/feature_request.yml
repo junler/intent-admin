@@ -1,0 +1,23 @@
+name: Feature request
+description: Propose a generic administration capability.
+labels: [enhancement]
+body:
+  - type: input
+    id: version
+    attributes: {label: Version or commit}
+    validations: {required: true}
+  - type: textarea
+    id: environment
+    attributes: {label: Deployment environment and current workflow}
+    validations: {required: true}
+  - type: textarea
+    id: problem
+    attributes: {label: Problem to solve, description: Explain a concrete user task and why the current flow falls short.}
+    validations: {required: true}
+  - type: textarea
+    id: outcome
+    attributes: {label: Proposed behavior, description: Include permissions, preview and rollback expectations where relevant.}
+    validations: {required: true}
+  - type: textarea
+    id: alternatives
+    attributes: {label: Alternatives considered}

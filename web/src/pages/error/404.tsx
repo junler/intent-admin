@@ -1,5 +1,5 @@
 import { Button, Result } from 'antd';
-import { useNavigate } from 'react-router';
+import { useNavigate } from '@umijs/max';
 
 export default function NotFound() {
   const navigate = useNavigate();

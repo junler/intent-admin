@@ -27,7 +27,7 @@ func OpenAPI(entries []*capability.Entry, basePath, version string) map[string]a
 		add(paths, basePath+normalizePath(e.HTTP.Path), strings.ToLower(e.HTTP.Method), operation(e))
 
 		if e.Mutating && e.HasDryRun() {
-			add(paths, basePath+normalizePath(previewPath(e.HTTP.Path)), "post", previewOperation(e))
+			add(paths, basePath+normalizePath(PreviewPath(e)), "post", previewOperation(e))
 		}
 		if e.Export != nil {
 			add(paths, basePath+normalizePath(e.HTTP.Path)+"/export", "post", exportOperation(e))

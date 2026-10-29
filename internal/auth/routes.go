@@ -1,8 +1,10 @@
 package auth
 
 import (
+	"net/url"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/junler/intent-admin/internal/model"
 )
@@ -12,6 +14,7 @@ type Route struct {
 	Name      string    `json:"name"`
 	Path      string    `json:"path"`
 	Component string    `json:"component"`
+	External  bool      `json:"external"`
 	Hidden    bool      `json:"hidden"`
 	Query     string    `json:"query,omitempty"`
 	Meta      RouteMeta `json:"meta"`
@@ -64,13 +67,30 @@ func BuildRoutes(menus []model.Menu, permissions []string) []Route {
 			} else if m.MenuType != "C" || (m.Perms != "" && !perms[m.Perms] && !perms["*:*:*"]) {
 				continue
 			}
+			external := m.IsFrame == "0"
+			if external && !validExternalURL(m.Path) {
+				continue
+			}
 			component := m.Component
 			if component == "" && m.MenuType == "M" {
 				component = "ParentView"
 			}
-			result = append(result, Route{Name: strings.ReplaceAll(m.Path, "/", "_") + "_" + itoa(m.MenuID), Path: m.Path, Component: component, Hidden: m.Visible == "1", Query: m.Query, Meta: RouteMeta{Title: m.MenuName, Icon: m.Icon, NoCache: m.IsCache == "1"}, Children: sub})
+			result = append(result, Route{Name: strings.ReplaceAll(m.Path, "/", "_") + "_" + itoa(m.MenuID), Path: m.Path, Component: component, Hidden: m.Visible == "1", External: external, Query: m.Query, Meta: RouteMeta{Title: m.MenuName, Icon: m.Icon, NoCache: m.IsCache == "1"}, Children: sub})
 		}
 		return result
 	}
 	return walk(0, map[int64]bool{})
+}
+
+func validExternalURL(raw string) bool {
+	if raw == "" || strings.TrimSpace(raw) != raw {
+		return false
+	}
+	for _, r := range raw {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	u, err := url.Parse(raw)
+	return err == nil && (strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")) && u.Hostname() != "" && u.User == nil && u.Opaque == ""
 }

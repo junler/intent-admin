@@ -18,16 +18,26 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/junler/intent-admin/internal/adapter/httpx"
+	"github.com/junler/intent-admin/internal/adapter/mcpx"
+	"github.com/junler/intent-admin/internal/agent"
 	"github.com/junler/intent-admin/internal/auth"
 	"github.com/junler/intent-admin/internal/cache"
 	"github.com/junler/intent-admin/internal/capability"
+	"github.com/junler/intent-admin/internal/changeset"
 	"github.com/junler/intent-admin/internal/config"
 	"github.com/junler/intent-admin/internal/dbx"
+	"github.com/junler/intent-admin/internal/feature/dashboard"
 	"github.com/junler/intent-admin/internal/feature/demo"
+	"github.com/junler/intent-admin/internal/feature/monitor"
+	"github.com/junler/intent-admin/internal/feature/resources"
+	"github.com/junler/intent-admin/internal/feature/system"
+	"github.com/junler/intent-admin/internal/knowledge"
 	"github.com/junler/intent-admin/internal/middleware"
 	"github.com/junler/intent-admin/internal/pkg/errcode"
 	"github.com/junler/intent-admin/internal/pkg/response"
 	"github.com/junler/intent-admin/internal/pkg/secret"
+	"github.com/junler/intent-admin/internal/plan"
+	"github.com/junler/intent-admin/internal/task"
 	"github.com/junler/intent-admin/internal/web"
 )
 
@@ -40,11 +50,20 @@ var (
 
 // App holds the assembled dependencies.
 type App struct {
-	Cfg    *config.Config
-	DB     *gorm.DB
-	Cache  *cache.Cache
-	Secret *secret.Cipher
-	Auth   *auth.Service
+	Cfg        *config.Config
+	DB         *gorm.DB
+	Cache      *cache.Cache
+	Secret     *secret.Cipher
+	Auth       *auth.Service
+	System     *system.Service
+	Resources  *resources.Service
+	Changesets *changeset.Service
+	Plans      *plan.Service
+	Knowledge  *knowledge.Service
+	Tasks      *task.Runtime
+	Dashboard  *dashboard.Service
+	Agent      *agent.Service
+	MCP        *mcpx.Adapter
 }
 
 // New opens the infrastructure and wires the capability executor.
@@ -69,12 +88,18 @@ func New(cfg *config.Config) (*App, error) {
 
 	app := &App{Cfg: cfg, DB: db, Cache: rdb, Secret: cipher}
 	app.Auth = auth.New(db, rdb, cfg)
+	app.Changesets = changeset.New(db)
+	app.Knowledge = knowledge.New(db)
+	app.Tasks = task.New(db, rdb, cfg)
 
 	if err := app.installExecutor(); err != nil {
 		app.Close()
 		return nil, err
 	}
-	app.registerFeatures()
+	if err := app.registerFeatures(); err != nil {
+		app.Close()
+		return nil, err
+	}
 
 	// The self-check enforces the invariants a linter cannot see — above all
 	// that configuration capabilities are closed to the AI and MCP. Refusing
@@ -111,38 +136,35 @@ func (a *App) installExecutor() error {
 		ReadOnly:          dbx.NewReadOnlyRunner(),
 		Validate:          func(in any) error { return v.Struct(in) },
 		MaxChangesetItems: a.Cfg.Changeset.MaxItemsPerSet,
-		// PersistChanges and WriteAudit are installed in Phase 2/3 together
-		// with the changeset and audit tables. Until then a mutating
-		// capability still runs inside a transaction and still collects
-		// Recorder entries — they are simply not persisted yet.
-		PersistChanges: nil,
-		WriteAudit:     a.logAudit,
+		PersistChanges:    a.Changesets.Persist,
+		WriteAudit:        a.Changesets.WriteAudit,
 	})
 	return nil
 }
 
-// logAudit writes the behaviour trail to the log until the sys_oper_log table
-// exists (Phase 3). Keeping the hook live from day one means every mutating
-// capability is already producing a complete audit record, so switching the
-// sink to the database later is a one-line change rather than a retrofit.
-func (a *App) logAudit(_ context.Context, rec capability.AuditRecord) {
-	slog.Info("audit",
-		"capability", rec.Capability,
-		"actor_type", rec.ActorType,
-		"source", rec.Source,
-		"user", rec.UserName,
-		"risk", rec.Risk,
-		"success", rec.Success,
-		"cost_ms", rec.CostMS,
-		"changeset", rec.ChangesetID,
-		"intent", rec.Intent,
-		"param", rec.Param,
-		"error", rec.ErrorMsg,
-	)
-}
-
-func (a *App) registerFeatures() {
+func (a *App) registerFeatures() error {
 	demo.Register(a.DB)
+	a.System = system.Register(a.DB, a.Cache, a.Cfg)
+	a.System.OnDictionaryChange = a.Knowledge.Invalidate
+	a.Resources = resources.Register(a.DB, a.Cache, a.Cfg, a.Secret)
+	if err := a.Resources.Bootstrap(context.Background()); err != nil {
+		return err
+	}
+	a.Changesets.Invalidate = a.System.Invalidate
+	a.Changesets.AuthorizeUndo = system.AuthorizeUndo(a.System)
+	a.Changesets.Register()
+	maxRisk, _ := capability.ParseRisk(a.Cfg.AI.MaxRisk)
+	a.Plans = plan.New(a.DB, plan.Options{TTL: a.Cfg.AI.PlanTTL, MaxSteps: a.Cfg.AI.MaxPlanSteps, MaxAffected: a.Cfg.AI.MaxAffected, MaxRisk: maxRisk, Changesets: a.Changesets})
+	monitor.Register(a.DB, a.Cache, a.Cfg, a.Tasks)
+	a.Dashboard = dashboard.Register(a.DB, a.Cache, a.Cfg, a.Tasks)
+	a.Tasks.FileWriter = a.Resources.StoreReader
+	a.Tasks.FileCleaner = a.Resources.CleanupExports
+	a.Tasks.RefreshDashboard = a.Dashboard.Warm
+	a.Tasks.RefreshKnowledge = func(context.Context) error { a.Knowledge.Invalidate(); return nil }
+	a.Agent = agent.New(a.DB, a.Cache, a.Cfg, a.Resources, a.Plans, a.Knowledge)
+	a.MCP = mcpx.New(a.Cache, a.Cfg, a.Auth.AuthenticatePAT, a.Knowledge)
+	a.MCP.SetConfirmationRunner(a.Plans.ConfirmedRun)
+	return nil
 }
 
 // Router builds the HTTP handler: middleware, capability endpoints, docs and
@@ -174,17 +196,40 @@ func (a *App) Router() *gin.Engine {
 	httpx.MountDocs(r, a.Cfg.App.BasePath, Version)
 
 	a.Auth.MountPublic(r.Group(a.Cfg.App.BasePath))
+	a.Resources.MountPublic(r.Group(a.Cfg.App.BasePath))
 	api := r.Group(a.Cfg.App.BasePath)
 	api.Use(a.Auth.Middleware())
 	a.Auth.MountProtected(api)
+	a.Resources.Mount(api)
+	a.Agent.Mount(api)
 	httpx.Mount(api, capability.All(), httpx.Options{
 		ExportMaxRows:         a.Cfg.Export.MaxRows,
 		ExportStreamThreshold: a.Cfg.Export.StreamThreshold,
+		AsyncExport:           a.Tasks.EnqueueExport,
+		DictLookup:            a.dictionaryLabel,
 	})
+	if a.Cfg.MCP.Enabled {
+		r.Any(a.Cfg.MCP.Path, gin.WrapH(a.MCP.Handler()))
+	}
 
 	// The SPA handler is mounted last so API routes always win.
 	r.NoRoute(gin.WrapH(web.Handler(a.Cfg.App.BasePath)))
 	return r
+}
+
+func (a *App) dictionaryLabel(dictType, value string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	items, err := a.System.Dictionary(ctx, dictType)
+	if err != nil {
+		return value
+	}
+	for _, item := range items {
+		if fmt.Sprint(item["dictValue"]) == value {
+			return fmt.Sprint(item["dictLabel"])
+		}
+	}
+	return value
 }
 
 func (a *App) health(c *gin.Context) {
@@ -212,6 +257,12 @@ func (a *App) health(c *gin.Context) {
 // Serve runs the HTTP server until ctx is cancelled, then shuts down
 // gracefully so in-flight requests and SSE streams can finish.
 func (a *App) Serve(ctx context.Context) error {
+	if err := a.Tasks.Start(ctx); err != nil {
+		return err
+	}
+	if err := a.Dashboard.Warm(ctx); err != nil {
+		slog.Warn("大盘预热失败，将按需加载", "error", err)
+	}
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", a.Cfg.App.Port),
 		Handler:           a.Router(),
@@ -246,6 +297,9 @@ func (a *App) Serve(ctx context.Context) error {
 func (a *App) Close() {
 	if a == nil {
 		return
+	}
+	if a.Tasks != nil {
+		a.Tasks.Close()
 	}
 	a.Cache.Close()
 	dbx.Close(a.DB)

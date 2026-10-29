@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/junler/intent-admin/internal/capability"
+	"github.com/junler/intent-admin/internal/dbx"
 	"github.com/junler/intent-admin/internal/pkg/errcode"
 )
 
@@ -76,7 +77,7 @@ func (o LabelOpt) evidence() *capability.Evidence {
 // fetch loads the affected rows as maps so the helpers do not need to know the
 // model's field layout.
 func fetch(ctx context.Context, db *gorm.DB, model any, ids []any, opt LabelOpt) ([]map[string]any, string, error) {
-	tx := db.WithContext(ctx).Model(model)
+	tx := dbx.DBFrom(ctx, db).Model(model)
 	entity := opt.Entity
 	if entity == "" {
 		stmt := tx.Statement

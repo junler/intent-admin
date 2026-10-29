@@ -86,7 +86,7 @@ function keyOf(config: AxiosRequestConfig): string {
 }
 
 export const http: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE ?? '/api',
+  baseURL: typeof __API_BASE__ !== 'undefined' ? __API_BASE__ : '/api',
   timeout: 30_000,
 });
 
@@ -106,6 +106,10 @@ http.interceptors.response.use(
     }
     const body = response.data as Envelope;
     if (body?.code === Code.OK) {
+      const changesetId = response.headers?.['x-changeset-id'];
+      if (changesetId && body.data && typeof body.data === 'object' && !Array.isArray(body.data)) {
+        return { ...body.data, changesetId } as never;
+      }
       return body.data as never;
     }
     throw new ApiError(
@@ -235,6 +239,10 @@ export async function download(
     });
   if ((response.data as Blob).type.includes('json')) {
     const body = JSON.parse(await (response.data as Blob).text()) as Envelope;
+    if (body.code === Code.OK) {
+      message.success(body.msg === '操作成功' ? '导出任务已提交，完成后可在文件管理下载' : body.msg);
+      return;
+    }
     const error = new ApiError(body.code, body.msg, body.data);
     if (sessionToken === auth.get()) handle(error);
     throw error;

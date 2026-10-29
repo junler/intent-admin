@@ -16,7 +16,7 @@ import {
   ThunderboltOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams, useModel } from '@umijs/max';
 
 import { safeRedirect } from '@/router/menu';
 import { resumeSession, useUserStore, type LoginInput } from '@/stores/user';
@@ -31,6 +31,7 @@ interface Challenge {
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const { setInitialState } = useModel('@@initialState');
   const [params] = useSearchParams();
   const [form] = Form.useForm<
     LoginInput & { nickName?: string; confirmPassword?: string }
@@ -106,6 +107,7 @@ export default function LoginPage() {
         await refreshChallenge();
       } else {
         await signIn(input);
+        await setInitialState((state) => ({ ...state, identity: useUserStore.getState().identity, menus: useUserStore.getState().menus }));
         navigate(safeRedirect(params.get('redirect')), { replace: true });
       }
     } catch {

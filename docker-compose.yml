@@ -1,0 +1,107 @@
+x-app-environment: &app-environment
+  INTENT_ADMIN_APP_ENV: ${APP_ENV:-dev}
+  INTENT_ADMIN_APP_ENCRYPT_KEY: ${ENCRYPT_KEY:-0123456789abcdef0123456789abcdef}
+  INTENT_ADMIN_JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+  INTENT_ADMIN_DB_HOST: postgres
+  INTENT_ADMIN_DB_PORT: '5432'
+  INTENT_ADMIN_DB_USER: postgres
+  INTENT_ADMIN_DB_PASSWORD: ${POSTGRES_PASSWORD:-intent-local-only}
+  INTENT_ADMIN_DB_NAME: intent_admin
+  INTENT_ADMIN_DB_SSL_MODE: disable
+  INTENT_ADMIN_REDIS_ADDR: redis:6379
+  INTENT_ADMIN_REDIS_PASSWORD: ${REDIS_PASSWORD:-intent-redis-local-only}
+  INTENT_ADMIN_TASK_EMBEDDED: 'true'
+  INTENT_ADMIN_TASK_SCHEDULER: 'true'
+  INTENT_ADMIN_STORAGE_BOOTSTRAP_DRIVER: ${STORAGE_DRIVER:-s3}
+  INTENT_ADMIN_STORAGE_BOOTSTRAP_ENDPOINT: minio:9000
+  INTENT_ADMIN_STORAGE_BOOTSTRAP_REGION: us-east-1
+  INTENT_ADMIN_STORAGE_BOOTSTRAP_BUCKET: intent-admin
+  INTENT_ADMIN_STORAGE_BOOTSTRAP_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-intent-minio}
+  INTENT_ADMIN_STORAGE_BOOTSTRAP_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-intent-minio-local-only}
+  INTENT_ADMIN_STORAGE_BOOTSTRAP_USE_SSL: 'false'
+  INTENT_ADMIN_STORAGE_BOOTSTRAP_PATH_STYLE: 'true'
+  INTENT_ADMIN_STORAGE_BOOTSTRAP_URL_MODE: ${STORAGE_URL_MODE:-presigned}
+  INTENT_ADMIN_STORAGE_BOOTSTRAP_PRESIGN_EXPIRE_SEC: '3600'
+  INTENT_ADMIN_STORAGE_BOOTSTRAP_LOCAL_DIR: /var/lib/intent/uploads
+  INTENT_ADMIN_STORAGE_BOOTSTRAP_BASE_URL: ${STORAGE_PUBLIC_URL:-http://localhost:9000/intent-admin}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: intent_admin
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-intent-local-only}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    ports: ['127.0.0.1:5432:5432']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d intent_admin']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes', '--requirepass', '${REDIS_PASSWORD:-intent-redis-local-only}']
+    volumes: [redis-data:/data]
+    ports: ['127.0.0.1:6379:6379']
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD:-intent-redis-local-only}', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    image: intent-minio:2025-09-07
+    build:
+      context: .
+      dockerfile: deploy/minio.Dockerfile
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-intent-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-intent-minio-local-only}
+    volumes: [minio-data:/data]
+    ports: ['127.0.0.1:9000:9000', '127.0.0.1:9001:9001']
+    restart: unless-stopped
+
+  minio-init:
+    image: ${INTENT_IMAGE:-intent-admin:local}
+    build: .
+    depends_on: [minio]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-intent-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-intent-minio-local-only}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_BUCKET: intent-admin
+    entrypoint: ['/usr/local/bin/storage-init']
+    command: []
+    restart: on-failure
+
+  migrate:
+    image: ${INTENT_IMAGE:-intent-admin:local}
+    build: .
+    environment: *app-environment
+    command: ['migrate', 'up']
+    depends_on:
+      postgres: {condition: service_healthy}
+    restart: 'no'
+
+  app:
+    image: ${INTENT_IMAGE:-intent-admin:local}
+    build: .
+    environment: *app-environment
+    volumes: [uploads:/var/lib/intent/uploads]
+    ports: ['${APP_PORT:-8080}:8080']
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      minio-init: {condition: service_completed_successfully}
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  uploads:

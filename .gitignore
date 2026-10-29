@@ -7,6 +7,10 @@ intent-admin
 web/node_modules/
 web/dist/
 web/.vite/
+web/src/.umi*/
+web/.umi*/
+web/.cache/
+web/node_modules/
 web/*.tsbuildinfo
 node_modules/
 .pnpm-store/
@@ -35,3 +39,10 @@ coverage.*
 .idea/
 .vscode/
 *.swp
+
+# Umi Max generated modules
+web/src/.umi/
+web/src/.umi-production/
+web/.cache/
+web/.temp/
+web/.turbo/
