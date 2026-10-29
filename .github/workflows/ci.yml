@@ -29,7 +29,7 @@ jobs:
       INTENT_ADMIN_DB_PASSWORD: integration-test-only
       INTENT_ADMIN_REDIS_ADDR: 127.0.0.1:6379
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -75,7 +75,7 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
