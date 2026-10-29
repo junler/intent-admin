@@ -1,0 +1,37 @@
+# Build output
+/bin/
+/dist/
+intent-admin
+
+# Frontend
+web/node_modules/
+web/dist/
+web/.vite/
+web/*.tsbuildinfo
+node_modules/
+.pnpm-store/
+
+# Embedded frontend output. Keep the directory available to go:embed even
+# before the first frontend build; the fallback page lives outside dist/.
+/internal/web/dist/*
+!/internal/web/dist/.gitkeep
+
+# Secrets and local config — never commit these
+/configs/config.yaml
+*.local.yaml
+.env
+.env.local
+
+# Uploads (local storage driver)
+/uploads/
+
+# Go
+*.test
+*.out
+coverage.*
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

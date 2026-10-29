@@ -18,6 +18,8 @@
 
 > ⚠️ 本项目处于开发阶段，功能与 API 尚未稳定。完整实施规格见 [`docs/implementation-plan.md`](docs/implementation-plan.md)。
 
+> **当前进度：Phase 0 框架可运行。** 已实现 Capability 注册与执行、HTTP/OpenAPI、分页、Excel 导出、修改/删除预览，以及 React 后台外壳、示例条目页和能力浏览器。开发环境使用临时身份，无需登录；认证、变更历史持久化、AI、MCP 和异步任务尚未接入。下文完整功能描述为目标规划，当前运行方式见「快速开始」。
+
 ---
 
 ## 为什么又做一个后台框架
@@ -182,47 +184,36 @@ intent-admin/
 
 ## 快速开始
 
-### 使用 Docker Compose（推荐）
-
-```bash
-git clone https://github.com/junler/intent-admin.git
-cd intent-admin
-cp configs/config.example.yaml configs/config.yaml   # 至少填 jwt.secret 与 ai.api_key
-docker compose up -d
-```
-
-打开 http://localhost:8080，默认账号 `admin` / `123456`（**首次登录后请立即修改**）。
-
-首次登录后到 **系统管理 → 模型服务**，选一个厂商（DeepSeek 最省事）、填 API Key、点「测试」、设为默认。
-
-然后试一下：按 `Cmd/Ctrl+K`，输入「把用户 test01 停用」。
-
 ### 本地开发
 
-前置：Go 1.25+、Node.js 22+、pnpm、PostgreSQL 14+、Redis 6+
+前置：Go 1.26+、Node.js 22+、pnpm 10+、PostgreSQL 14+、Redis 6+。先启动 PostgreSQL 和 Redis。
 
 ```bash
 cp configs/config.example.yaml configs/config.yaml
-# 编辑：数据库、Redis、jwt.secret（必填）、ai.*（可选）
+# 编辑 db.*、redis.*、jwt.secret 和 app.encrypt_key，保持 app.env=dev。
+# 已有本地配置时保留原文件。当前无需配置模型 API Key。
 
-createdb intent_admin
-go run . migrate up
-go run . migrate seed
+createdb -h 127.0.0.1 -U postgres intent_admin
 
 make install
+make migrate    # 建表，并自动写入 5 条演示数据；无需运行 migrate seed
 make dev        # 后端 :8080 + 前端 :5173（自动代理 /api）
 ```
 
-前端 http://localhost:5173，API 文档 http://localhost:8080/swagger。
+打开 http://localhost:5173，自动进入示例条目页，可筛选、分页、导出、预览后启用/停用或删除条目。能力浏览器展示自动生成的接口目录。
+
+健康检查：http://localhost:8080/healthz；API 文档：http://localhost:8080/swagger；OpenAPI：http://localhost:8080/openapi.json。
+
+当前 `dev` 模式注入临时开发身份，无需账号密码。变更历史及回滚入口尚未实现；`worker`、`mcp`、`migrate seed` 和 `migrate rekey` 子命令会明确提示尚未实现。`make test` 运行后端测试。
 
 ### 单二进制构建
 
 ```bash
 make build        # 构建前端 → 嵌入 → 编译
-./bin/intent-admin serve
+make serve        # 启动 :8080，直接提供前端和 API
 ```
 
-产物是一个不依赖任何静态文件的可执行文件。
+打开 http://localhost:8080。产物 `bin/intent-admin` 已包含前端资源；运行时仍需配置文件（或环境变量）、PostgreSQL 和 Redis。
 
 ## 配置
 

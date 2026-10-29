@@ -1,0 +1,42 @@
+/* Layer order must be declared before importing Tailwind.
+ *
+ * `antd` sits between `base` and `components` so that Ant Design's CSS-in-JS
+ * output (injected into the `antd` layer by <StyleProvider layer>) loses to
+ * Tailwind utilities. Without this pair of changes the two libraries override
+ * each other unpredictably — a Tailwind `p-0` on a Button sometimes applies
+ * and sometimes does not, depending on injection order.
+ *
+ * See https://ant.design/docs/react/compatible-style */
+@layer theme, base, antd, components, utilities;
+
+@import 'tailwindcss';
+
+:root {
+  --app-header-height: 56px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+/* Scrollbars: thin and unobtrusive, matching antd's visual weight. */
+* {
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgb(0 0 0 / 15%);
+  border-radius: 4px;
+}

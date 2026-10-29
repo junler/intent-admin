@@ -1,0 +1,97 @@
+# intent-admin 配置示例
+#
+# 复制为 configs/config.yaml 后修改。所有项都可以用环境变量覆盖，
+# 前缀 INTENT_ADMIN_，嵌套用下划线连接，例如：
+#   INTENT_ADMIN_DB_PASSWORD=secret
+#   INTENT_ADMIN_JWT_SECRET=$(openssl rand -base64 32)
+
+app:
+  name: intent-admin
+  env: dev                # dev | prod
+  port: 8080
+  base_path: /api
+  # 用于加密模型 API Key 与存储 Secret（AES-256-GCM），必填。
+  # 生成：openssl rand -base64 32
+  # ⚠️ 丢失此密钥，库中已加密的凭证将无法恢复，请随数据库一起备份。
+  encrypt_key: "0123456789abcdef0123456789abcdef"
+
+db:
+  host: 127.0.0.1
+  port: 5432
+  user: postgres
+  password: ""
+  name: intent_admin
+  ssl_mode: disable
+  time_zone: Asia/Shanghai
+  max_open_conns: 50
+  max_idle_conns: 10
+  log_level: warn         # silent | error | warn | info
+
+redis:
+  addr: 127.0.0.1:6379
+  password: ""
+  db: 0
+  key_prefix: "intent-admin:"
+
+jwt:
+  # 必填，为空拒绝启动。生成：openssl rand -base64 32
+  secret: "change-me-in-production"
+  expire: 24h
+  issuer: intent-admin
+
+task:
+  embedded: true          # serve 时内嵌 asynq worker
+  scheduler: true         # serve 时内嵌定时任务调度器；多副本部署只允许一个为 true
+  concurrency: 10
+  sync_interval: 15s
+
+changeset:
+  retain_days: 90
+  max_items_per_set: 2000 # 单次操作影响上限，超出拒绝执行并提示分批
+
+export:
+  max_rows: 50000         # 同步导出上限，超出转后台异步导出
+  stream_threshold: 5000  # 超过此行数改用 StreamWriter，避免内存随行数线性增长
+  async_retain_days: 7
+
+# 存储的实际配置在「系统管理 → 存储配置」页面维护。
+# 下面只用于首次部署引导：库里没有配置时据此自动创建一条，之后以库为准。
+storage:
+  bootstrap:
+    driver: local         # local | s3
+    local_dir: ./uploads
+    base_url: http://localhost:8080/uploads
+    endpoint: ""          # driver=s3 时填，如 minio:9000
+    region: ""
+    bucket: ""
+    access_key_id: ""
+    secret_key: ""
+    use_ssl: true
+    path_style: true      # MinIO 必须为 true
+
+# 模型服务同理，实际配置在「系统管理 → 模型服务」页面维护。
+ai:
+  bootstrap:
+    vendor: ""            # deepseek | ark | dashscope | moonshot | zhipu | siliconflow | openai | custom
+    api_key: ""
+    base_url: ""          # vendor 为预设时留空，自动取预设值
+    model: ""
+  max_risk: high          # AI 可执行的风险上限：low|medium|high|critical
+  max_affected: 200       # 单个 Plan 影响条数上限，超出强制人工执行
+  max_tool_calls: 25
+  max_plan_steps: 20
+  plan_ttl: 30m
+  session_ttl: 168h
+
+mcp:
+  enabled: true
+  path: /mcp
+  tool_mode: meta         # meta | flat
+  tool_tags: []
+  max_risk: low           # ⚠️ 默认只读。调高意味着外部 AI 客户端可以改数据
+  confirm_ttl: 5m
+  rate_per_min: 60
+
+log:
+  level: info
+  format: json            # json | text
