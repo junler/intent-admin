@@ -263,6 +263,9 @@ func asConfigNotFound(err error, target *viper.ConfigFileNotFoundError) bool {
 // missing or placeholder secret is deliberate: a silently weak key is worse
 // than a failed deploy.
 func (c *Config) Validate() error {
+	if c.JWT.Expire <= 0 {
+		return fmt.Errorf("jwt.expire 必须大于 0")
+	}
 	if strings.TrimSpace(c.JWT.Secret) == "" {
 		return fmt.Errorf("jwt.secret 必填（可用 openssl rand -base64 32 生成）")
 	}

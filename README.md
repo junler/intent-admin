@@ -18,7 +18,7 @@
 
 > ⚠️ 本项目处于开发阶段，功能与 API 尚未稳定。完整实施规格见 [`docs/implementation-plan.md`](docs/implementation-plan.md)。
 
-> **当前进度：Phase 0 框架可运行。** 已实现 Capability 注册与执行、HTTP/OpenAPI、分页、Excel 导出、修改/删除预览，以及 React 后台外壳、示例条目页和能力浏览器。开发环境使用临时身份，无需登录；认证、变更历史持久化、AI、MCP 和异步任务尚未接入。下文完整功能描述为目标规划，当前运行方式见「快速开始」。
+> **当前进度：Phase 1 认证、权限与风险门槛已接入。** 已实现登录、验证码、Redis 在线会话、权限合并、动态菜单与按钮权限，以及 Capability、HTTP/OpenAPI、分页、Excel 导出和修改/删除预览。21 张系统表及初始数据已提供迁移；变更历史持久化、业务管理页面、AI、MCP 和异步任务继续按计划实施。下文完整功能描述为目标规划，当前运行方式见「快速开始」。
 
 ---
 
@@ -196,15 +196,29 @@ cp configs/config.example.yaml configs/config.yaml
 createdb -h 127.0.0.1 -U postgres intent_admin
 
 make install
-make migrate    # 建表，并自动写入 5 条演示数据；无需运行 migrate seed
+make migrate    # 建表，写入管理员、当前菜单、字典、参数和演示数据
 make dev        # 后端 :8080 + 前端 :5173（自动代理 /api）
 ```
 
-打开 http://localhost:5173，自动进入示例条目页，可筛选、分页、导出、预览后启用/停用或删除条目。能力浏览器展示自动生成的接口目录。
+打开 http://localhost:5173，使用初始账号 `admin` / `123456` 和图形验证码登录。侧边栏由有效权限派生，示例条目页可筛选、分页、导出、预览后启用/停用或删除条目。能力浏览器展示自动生成的接口目录。部署时应替换初始管理员密码（当前尚无个人改密页面）。
 
 健康检查：http://localhost:8080/healthz；API 文档：http://localhost:8080/swagger；OpenAPI：http://localhost:8080/openapi.json。
 
-当前 `dev` 模式注入临时开发身份，无需账号密码。变更历史及回滚入口尚未实现；`worker`、`mcp`、`migrate seed` 和 `migrate rekey` 子命令会明确提示尚未实现。`make test` 运行后端测试。
+开发和生产环境均需要登录。验证码默认开启，公开注册默认关闭，由 `sys_config` 中的 `sys.account.captchaEnabled` / `sys.account.registerUser` 控制；注册账号不自动获得角色或权限。`migrate seed` 可补齐缺失的种子数据，保留已有密码、设置和菜单。当前仅初始化已实现页面的菜单。
+
+JWT 携带签名后的会话 UUID，由 Redis `login_token:{uuid}` 的 TTL 控制有效期；JWT 不另设固定 `exp`，以支持刷新时保持原 token。剩余 TTL 少于 `jwt.expire` 的三分之一时，`POST /api/refreshToken` 延长会话；删除对应 Redis key 后立即返回 401。权限快照缓存 30 分钟，后续角色、菜单和用户授权写入必须调用 `InvalidatePermissions`。浏览器操作的风险上限为 critical，AI/MCP 仍受全局和主体风险上限限制。
+
+同账号密码连续错误 5 次锁定 10 分钟；登录/注册按 IP 共用每分钟 20 次限额，验证码每分钟 60 次。默认不信任转发 IP 头；反向代理部署时按连接地址限流。变更历史及回滚入口尚未实现；`worker`、`mcp` 和 `migrate rekey` 子命令仍会提示尚未实现。
+
+`make test` 运行 Go 单元测试，`pnpm --dir web test` 运行前端测试。真实 PostgreSQL/Redis 集成测试需使用以 `_integration` 结尾的独立测试数据库：
+
+```bash
+INTENT_ADMIN_INTEGRATION=1 \
+INTENT_ADMIN_DB_NAME=intent_admin_integration \
+go test ./internal/bootstrap -run TestAuthenticationIntegration -v
+```
+
+数据库与 Redis 的其他连接参数可通过 `INTENT_ADMIN_DB_*`、`INTENT_ADMIN_REDIS_*` 覆盖。集成测试会迁移测试数据库，并使用独立 Redis key 前缀，覆盖验证码、登录/注册、权限 403、会话刷新/吊销及风险 423。
 
 ### 单二进制构建
 

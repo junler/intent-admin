@@ -159,6 +159,29 @@ func TestSuperPermBypassesPermissionButNotRisk(t *testing.T) {
 	}
 }
 
+func TestDeploymentRiskCeilings(t *testing.T) {
+	reset(t)
+	install(t)
+	Install(Hooks{MaxAIRisk: RiskLow, MaxMCPRisk: RiskLow})
+	Register(Capability[testIn, testOut]{
+		Meta: Meta{Name: "test.configuredRisk", Summary: "中风险功能", Risk: RiskMedium, AIEnabled: true, MCPEnabled: true},
+		Fn:   func(context.Context, testIn) (testOut, error) { return testOut{}, nil },
+	})
+	for _, src := range []Source{SourceAI, SourceMCP, SourceHTTP} {
+		ctx := WithActor(context.Background(), actor([]string{SuperPerm}, src, RiskCritical))
+		_, err := InvokeJSON(ctx, "test.configuredRisk", json.RawMessage(`{"id":1}`))
+		if src == SourceHTTP {
+			if err != nil {
+				t.Fatalf("human action must retain its own ceiling: %v", err)
+			}
+			continue
+		}
+		if errcode.From(err).Code != errcode.RiskExceeded {
+			t.Fatalf("source=%s: configured low ceiling must reject medium, got %v", src, err)
+		}
+	}
+}
+
 func TestEntryPointVisibilityReports404(t *testing.T) {
 	reset(t)
 	install(t)

@@ -18,8 +18,9 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/junler/intent-admin/internal/adapter/httpx"
-	"github.com/junler/intent-admin/internal/capability"
+	"github.com/junler/intent-admin/internal/auth"
 	"github.com/junler/intent-admin/internal/cache"
+	"github.com/junler/intent-admin/internal/capability"
 	"github.com/junler/intent-admin/internal/config"
 	"github.com/junler/intent-admin/internal/dbx"
 	"github.com/junler/intent-admin/internal/feature/demo"
@@ -43,6 +44,7 @@ type App struct {
 	DB     *gorm.DB
 	Cache  *cache.Cache
 	Secret *secret.Cipher
+	Auth   *auth.Service
 }
 
 // New opens the infrastructure and wires the capability executor.
@@ -66,6 +68,7 @@ func New(cfg *config.Config) (*App, error) {
 	}
 
 	app := &App{Cfg: cfg, DB: db, Cache: rdb, Secret: cipher}
+	app.Auth = auth.New(db, rdb, cfg)
 
 	if err := app.installExecutor(); err != nil {
 		app.Close()
@@ -94,11 +97,16 @@ func (a *App) installExecutor() error {
 	if err != nil {
 		return fmt.Errorf("ai.max_risk 无效: %w", err)
 	}
-	_ = maxRisk // consumed by the AI adapter in a later phase
+	mcpRisk, err := capability.ParseRisk(a.Cfg.MCP.MaxRisk)
+	if err != nil {
+		return fmt.Errorf("mcp.max_risk 无效: %w", err)
+	}
 
 	v := validator.New(validator.WithRequiredStructEnabled())
 
 	capability.Install(capability.Hooks{
+		MaxAIRisk:         maxRisk,
+		MaxMCPRisk:        mcpRisk,
 		Tx:                dbx.NewTxRunner(a.DB),
 		ReadOnly:          dbx.NewReadOnlyRunner(),
 		Validate:          func(in any) error { return v.Struct(in) },
@@ -146,6 +154,10 @@ func (a *App) Router() *gin.Engine {
 	httpx.DisableGinValidation()
 
 	r := gin.New()
+	// Trust the direct peer by default so clients cannot forge X-Forwarded-For
+	// to evade authentication throttles. Explicit proxy configuration can be
+	// added when a deployment needs a trusted ingress.
+	_ = r.SetTrustedProxies(nil)
 	r.Use(
 		middleware.RequestID(),
 		middleware.Recover(),
@@ -161,12 +173,10 @@ func (a *App) Router() *gin.Engine {
 	})
 	httpx.MountDocs(r, a.Cfg.App.BasePath, Version)
 
+	a.Auth.MountPublic(r.Group(a.Cfg.App.BasePath))
 	api := r.Group(a.Cfg.App.BasePath)
-	// Until Phase 1 lands JWT authentication, a development-only actor is
-	// injected so the capability layer can be exercised. It is refused in
-	// production: an unauthenticated superuser is not a thing that should ever
-	// be reachable by accident.
-	api.Use(a.devActor())
+	api.Use(a.Auth.Middleware())
+	a.Auth.MountProtected(api)
 	httpx.Mount(api, capability.All(), httpx.Options{
 		ExportMaxRows:         a.Cfg.Export.MaxRows,
 		ExportStreamThreshold: a.Cfg.Export.StreamThreshold,
@@ -175,31 +185,6 @@ func (a *App) Router() *gin.Engine {
 	// The SPA handler is mounted last so API routes always win.
 	r.NoRoute(gin.WrapH(web.Handler(a.Cfg.App.BasePath)))
 	return r
-}
-
-// devActor is a placeholder until Phase 1 implements JWT authentication.
-func (a *App) devActor() gin.HandlerFunc {
-	if a.Cfg.App.IsProd() {
-		return func(c *gin.Context) {
-			response.Abort(c, errcode.Unauthorizedf("认证模块尚未实现（Phase 1），生产环境拒绝访问"))
-		}
-	}
-	slog.Warn("开发模式：注入临时超管身份，认证模块将在 Phase 1 实现")
-	return func(c *gin.Context) {
-		actor := &capability.Actor{
-			Type:         capability.ActorHuman,
-			Source:       capability.SourceHTTP,
-			UserID:       1,
-			UserName:     "dev",
-			Perms:        []string{capability.SuperPerm},
-			MaxRisk:      capability.RiskCritical,
-			IP:           c.ClientIP(),
-			UserAgent:    c.Request.UserAgent(),
-			ApprovalMode: "manual",
-		}
-		c.Request = c.Request.WithContext(capability.WithActor(c.Request.Context(), actor))
-		c.Next()
-	}
 }
 
 func (a *App) health(c *gin.Context) {

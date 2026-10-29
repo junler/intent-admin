@@ -49,6 +49,10 @@ type AuditRecord struct {
 // bootstrap. They are interfaces rather than imports so this package stays
 // free of GORM and of the changeset/audit packages, which depend on it.
 type Hooks struct {
+	// MaxAIRisk and MaxMCPRisk are deployment ceilings. They apply in the
+	// executor as well as adapters so no alternate entry point can raise them.
+	MaxAIRisk  Risk
+	MaxMCPRisk Risk
 	// Tx runs fn inside a database transaction. Required for Mutating
 	// capabilities so the business write and its changeset commit together —
 	// an audit trail that can diverge from the data is worse than none.
@@ -210,14 +214,26 @@ func checkPermission(e *Entry, actor *Actor) error {
 // checkRisk enforces the risk ceiling and, when exceeded, returns a payload
 // the UI and the agent can act on: which route the human should use instead.
 func checkRisk(e *Entry, actor *Actor) error {
-	if e.Risk.AtMost(actor.MaxRisk) {
+	allowed := actor.MaxRisk
+	if !allowed.Valid() {
+		allowed = RiskLow
+	}
+	if actor.Source == SourceAI || actor.Source == SourceMCP {
+		if hooks.MaxAIRisk.Valid() && hooks.MaxAIRisk.Level() < allowed.Level() {
+			allowed = hooks.MaxAIRisk
+		}
+	}
+	if actor.Source == SourceMCP && hooks.MaxMCPRisk.Valid() && hooks.MaxMCPRisk.Level() < allowed.Level() {
+		allowed = hooks.MaxMCPRisk
+	}
+	if e.Risk.AtMost(allowed) {
 		return nil
 	}
 	detail := map[string]any{
 		"capability": e.Name,
 		"risk":       e.Risk,
-		"allowed":    actor.MaxRisk,
-		"hint":       fmt.Sprintf("%s属于%s操作，超出当前允许的上限（%s），请在管理页面手动执行", e.Summary, e.Risk.Label(), actor.MaxRisk.Label()),
+		"allowed":    allowed,
+		"hint":       fmt.Sprintf("%s属于%s操作，超出当前允许的上限（%s），请在管理页面手动执行", e.Summary, e.Risk.Label(), allowed.Label()),
 	}
 	if e.HTTP != nil {
 		detail["path"] = e.HTTP.Path

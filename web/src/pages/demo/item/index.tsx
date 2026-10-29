@@ -11,10 +11,16 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { DeleteOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  DeleteOutlined,
+  DownloadOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 
 import { DiffTable } from '@/components/diff/DiffTable';
+import { Auth } from '@/components/auth/Auth';
+import { usePerm } from '@/hooks/usePerm';
 import { usePreviewAction } from '@/hooks/usePreviewAction';
 import { usePageContext } from '@/stores/pageContext';
 import { api, download, type PageData } from '@/utils/request';
@@ -50,6 +56,7 @@ const statusLabel: Record<string, { text: string; color: string }> = {
  * AI-addressable. Real modules look exactly like this.
  */
 export default function DemoItemPage() {
+  const canRemove = usePerm('demo:item:remove');
   const [form] = Form.useForm<Filters>();
   const [filters, setFilters] = useState<Filters>({});
   const [page, setPage] = useState({ pageNum: 1, pageSize: 10 });
@@ -140,26 +147,30 @@ export default function DemoItemPage() {
       fixed: 'right',
       render: (_, row) => (
         <Space size={4}>
-          <Button
-            type="link"
-            size="small"
-            onClick={() =>
-              void toggleStatus.run({
-                itemId: row.itemId,
-                status: row.status === '0' ? '1' : '0',
-              })
-            }
-          >
-            {row.status === '0' ? '停用' : '启用'}
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            danger
-            onClick={() => void remove.run({ itemIds: [row.itemId] })}
-          >
-            删除
-          </Button>
+          <Auth perm="demo:item:edit">
+            <Button
+              type="link"
+              size="small"
+              onClick={() =>
+                void toggleStatus.run({
+                  itemId: row.itemId,
+                  status: row.status === '0' ? '1' : '0',
+                })
+              }
+            >
+              {row.status === '0' ? '停用' : '启用'}
+            </Button>
+          </Auth>
+          <Auth perm="demo:item:remove">
+            <Button
+              type="link"
+              size="small"
+              danger
+              onClick={() => void remove.run({ itemIds: [row.itemId] })}
+            >
+              删除
+            </Button>
+          </Auth>
         </Space>
       ),
     },
@@ -170,12 +181,14 @@ export default function DemoItemPage() {
       title="示例条目"
       extra={
         <Space>
-          <Button
-            icon={<DownloadOutlined />}
-            onClick={() => void download('/demo/item/list/export', filters)}
-          >
-            导出
-          </Button>
+          <Auth perm="demo:item:export">
+            <Button
+              icon={<DownloadOutlined />}
+              onClick={() => void download('/demo/item/list/export', filters)}
+            >
+              导出
+            </Button>
+          </Auth>
           <Button icon={<ReloadOutlined />} onClick={() => void load()}>
             刷新
           </Button>
@@ -226,14 +239,18 @@ export default function DemoItemPage() {
         </Form.Item>
       </Form>
 
-      {selected.length > 0 && (
+      {canRemove && selected.length > 0 && (
         <Space className="mb-3">
-          <Typography.Text type="secondary">已选 {selected.length} 项</Typography.Text>
+          <Typography.Text type="secondary">
+            已选 {selected.length} 项
+          </Typography.Text>
           <Button
             danger
             size="small"
             icon={<DeleteOutlined />}
-            onClick={() => void remove.run({ itemIds: selected.map((r) => r.itemId) })}
+            onClick={() =>
+              void remove.run({ itemIds: selected.map((r) => r.itemId) })
+            }
           >
             批量删除
           </Button>
@@ -246,10 +263,14 @@ export default function DemoItemPage() {
         columns={columns}
         dataSource={data.rows}
         scroll={{ x: 1000 }}
-        rowSelection={{
-          selectedRowKeys: selected.map((r) => r.itemId),
-          onChange: (_, rows) => setSelected(rows),
-        }}
+        rowSelection={
+          canRemove
+            ? {
+                selectedRowKeys: selected.map((r) => r.itemId),
+                onChange: (_, rows) => setSelected(rows),
+              }
+            : undefined
+        }
         pagination={{
           current: data.pageNum || page.pageNum,
           pageSize: data.pageSize || page.pageSize,
@@ -261,7 +282,11 @@ export default function DemoItemPage() {
       />
 
       <PreviewModal title="删除确认" action={remove} okText="确认删除" danger />
-      <PreviewModal title="状态变更确认" action={toggleStatus} okText="确认执行" />
+      <PreviewModal
+        title="状态变更确认"
+        action={toggleStatus}
+        okText="确认执行"
+      />
     </Card>
   );
 }
@@ -291,7 +316,9 @@ function PreviewModal({
       width={760}
       destroyOnHidden
     >
-      {state.loading && <Typography.Text type="secondary">正在预演…</Typography.Text>}
+      {state.loading && (
+        <Typography.Text type="secondary">正在预演…</Typography.Text>
+      )}
       {state.preview && <DiffTable preview={state.preview} />}
     </Modal>
   );
