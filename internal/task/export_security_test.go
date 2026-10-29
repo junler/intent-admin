@@ -15,6 +15,8 @@ import (
 	"github.com/junler/intent-admin/internal/model"
 	"github.com/junler/intent-admin/internal/pkg/errcode"
 	"github.com/junler/intent-admin/internal/pkg/paginate"
+	"github.com/junler/intent-admin/migrations"
+	"github.com/pressly/goose/v3"
 )
 
 func TestExportAuthorizationRevokedBeforeDelivery(t *testing.T) {
@@ -34,6 +36,18 @@ func TestExportAuthorizationRevokedBeforeDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer dbx.Close(db)
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	goose.SetBaseFS(migrations.FS)
+	goose.SetTableName("schema_migrations")
+	if err = goose.SetDialect("postgres"); err != nil {
+		t.Fatal(err)
+	}
+	if err = goose.Up(sqlDB, migrations.Dir); err != nil {
+		t.Fatal(err)
+	}
 	c, err := cache.Open(cfg)
 	if err != nil {
 		t.Fatal(err)
