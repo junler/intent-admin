@@ -11,15 +11,19 @@ import (
 // menu definitions or credentials. The same SQL also runs in migration 00003.
 // Call after migrating up; the transaction makes an explicit rerun atomic.
 func Seed(ctx context.Context, db *sql.DB) error {
-	raw, err := FS.ReadFile("00003_seed.sql")
-	if err != nil {
-		return fmt.Errorf("读取种子数据失败: %w", err)
+	scripts := []string{"00003_seed.sql", "00004_full_menu.sql"}
+	up := ""
+	for _, name := range scripts {
+		raw, err := FS.ReadFile(name)
+		if err != nil {
+			return fmt.Errorf("读取种子数据失败: %w", err)
+		}
+		section, _, ok := strings.Cut(string(raw), "-- +goose Down")
+		if !ok {
+			return fmt.Errorf("种子迁移缺少 Down 标记")
+		}
+		up += strings.TrimPrefix(section, "-- +goose Up") + "\n"
 	}
-	up, _, ok := strings.Cut(string(raw), "-- +goose Down")
-	if !ok {
-		return fmt.Errorf("种子迁移缺少 Down 标记")
-	}
-	up = strings.TrimPrefix(up, "-- +goose Up")
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("开始种子事务失败: %w", err)

@@ -11,6 +11,7 @@
 package httpx
 
 import (
+	"context"
 	"log/slog"
 	"strings"
 
@@ -23,6 +24,8 @@ import (
 
 // Options configures endpoint generation.
 type Options struct {
+	// AsyncExport queues exports exceeding the synchronous row limit.
+	AsyncExport func(context.Context, *capability.Entry, any) (any, error)
 	// ExportMaxRows caps a synchronous export; above it the request is
 	// refused with a hint to use background export.
 	ExportMaxRows int
@@ -36,6 +39,12 @@ type Options struct {
 // Mount registers every capability that declares an HTTP binding.
 func Mount(g *gin.RouterGroup, entries []*capability.Entry, opts Options) {
 	var mounted, previews, exports int
+	previewUses := map[string]int{}
+	for _, e := range entries {
+		if e.HTTP != nil && e.Mutating && e.HasDryRun() {
+			previewUses[previewPath(e.HTTP.Path)]++
+		}
+	}
 	for _, e := range entries {
 		if e.HTTP == nil {
 			continue
@@ -47,7 +56,12 @@ func Mount(g *gin.RouterGroup, entries []*capability.Entry, opts Options) {
 		// query string comfortably carries, and it is read-only regardless of
 		// the verb the underlying capability uses.
 		if e.Mutating && e.HasDryRun() {
-			g.POST(previewPath(e.HTTP.Path), previewHandler(e))
+			canonical := PreviewPath(e)
+			g.POST(canonical, previewHandler(e))
+			legacy := previewPath(e.HTTP.Path)
+			if legacy != canonical && previewUses[legacy] == 1 {
+				g.POST(legacy, previewHandler(e))
+			}
 			previews++
 		}
 
@@ -59,6 +73,17 @@ func Mount(g *gin.RouterGroup, entries []*capability.Entry, opts Options) {
 	}
 	slog.Info("已挂载 HTTP 端点",
 		"capabilities", mounted, "preview", previews, "export", exports)
+}
+
+// PreviewPath distinguishes create, update and remove when their HTTP
+// bindings share a CRUD base path. Dedicated action paths retain /preview.
+func PreviewPath(e *capability.Entry) string {
+	base := strings.TrimSuffix(previewPath(e.HTTP.Path), "/preview")
+	action := e.Name[strings.LastIndex(e.Name, ".")+1:]
+	if action != "" && !strings.HasSuffix(base, "/"+action) {
+		base += "/" + action
+	}
+	return base + "/preview"
 }
 
 // previewPath derives the preview route. Path parameters are dropped: a
@@ -84,10 +109,15 @@ func invokeHandler(e *capability.Entry) gin.HandlerFunc {
 			response.Fail(c, err)
 			return
 		}
-		out, err := capability.InvokeTyped(c.Request.Context(), e.Name, in)
+		result := &capability.CallResult{}
+		ctx := capability.WithCallResult(c.Request.Context(), result)
+		out, err := capability.InvokeTyped(ctx, e.Name, in)
 		if err != nil {
 			response.Fail(c, err)
 			return
+		}
+		if result.ChangesetID != "" {
+			c.Header("X-Changeset-Id", result.ChangesetID)
 		}
 		response.OK(c, out)
 	}

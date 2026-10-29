@@ -1389,6 +1389,8 @@ func TaskHandlers() []TaskHandler
 
 内置：`system:cleanOperLog`、`system:cleanLoginLog`、`system:cleanJobLog`、`system:cleanChangeset`（按 `sys.changeset.retainDays`）、`system:refreshDashboard`、`system:refreshKnowledge`、`system:exportAsync`（大数据量后台导出，见 4.9）、`system:cleanExportFiles`、`demo:noParams`、`demo:withParams`。
 
+`system:exportAsync` 仅供已认证的导出适配器内部投递，不出现在用户可选的定时任务处理器中。导出用户 ID 必须取自当前 Actor，禁止通过任务参数指定其他用户以借用其权限；执行前及文件交付前都重新校验该用户的当前有效权限。
+
 任务执行时 `Actor{Type:"system", Source:SourceTask, MaxRisk:RiskHigh}`，变更同样进 changeset（这样定时任务误删也能回滚）。
 
 ### 14.4 cronspec 格式约定

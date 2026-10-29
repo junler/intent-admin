@@ -16,14 +16,14 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-if [ ! -x web/node_modules/.bin/vite ]; then
+if [ ! -x web/node_modules/.bin/max ]; then
   printf '%s\n' '缺少前端依赖，请先运行 make install。' >&2
   exit 1
 fi
 
 ./bin/intent-admin serve --config "$config" &
 backend_pid=$!
-(cd web && exec ./node_modules/.bin/vite --host 127.0.0.1 --strictPort) &
+(cd web && exec npm run dev) &
 frontend_pid=$!
 
 # Exit and clean up both children when either server stops.

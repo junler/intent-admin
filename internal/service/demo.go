@@ -104,7 +104,7 @@ func (s *DemoService) List(ctx context.Context, in DemoListIn) (DemoListOut, err
 	}
 
 	var items []model.DemoItem
-	if err := db.Scopes(order, in.Scope()).Find(&items).Error; err != nil {
+	if err := db.Scopes(order, in.Scope()).Order("item_id ASC").Find(&items).Error; err != nil {
 		return DemoListOut{}, errcode.Internalf("查询失败").Wrap(err)
 	}
 

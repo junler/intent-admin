@@ -8,6 +8,7 @@
 package undo
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/junler/intent-admin/internal/capability"
+	"github.com/junler/intent-admin/internal/dbx"
 	"github.com/junler/intent-admin/internal/pkg/errcode"
 )
 
@@ -57,7 +59,7 @@ func RestoreFieldsFn(db *gorm.DB, table Table) func(context.Context, json.RawMes
 		if len(p.Before) == 0 {
 			return errcode.Internalf("回滚数据缺少原值，无法恢复 %s#%s", p.Entity, p.ID)
 		}
-		res := db.WithContext(ctx).Table(table.Name).
+		res := dbx.DBFrom(ctx, db).Table(table.Name).
 			Where(table.idField()+" = ?", p.ID).
 			Updates(p.Before)
 		if res.Error != nil {
@@ -83,7 +85,7 @@ func RestoreSoftDeletedFn(db *gorm.DB, table Table, flagField, aliveValue string
 		if err := p.expect(table.Name, capability.OpDelete); err != nil {
 			return err
 		}
-		res := db.WithContext(ctx).Table(table.Name).
+		res := dbx.DBFrom(ctx, db).Table(table.Name).
 			Where(table.idField()+" = ?", p.ID).
 			Update(flagField, aliveValue)
 		if res.Error != nil {
@@ -107,7 +109,7 @@ func DeleteCreatedFn(db *gorm.DB, table Table) func(context.Context, json.RawMes
 		if err := p.expect(table.Name, capability.OpCreate); err != nil {
 			return err
 		}
-		if err := db.WithContext(ctx).Table(table.Name).
+		if err := dbx.DBFrom(ctx, db).Table(table.Name).
 			Where(table.idField()+" = ?", p.ID).
 			Delete(nil).Error; err != nil {
 			return errcode.Internalf("撤销新增 %s#%s 失败", p.Entity, p.ID).Wrap(err)
@@ -144,7 +146,9 @@ func Auto(db *gorm.DB, table Table, flagField, aliveValue string) func(context.C
 
 func decode(raw json.RawMessage) (*Payload, error) {
 	var p Payload
-	if err := json.Unmarshal(raw, &p); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&p); err != nil {
 		return nil, errcode.Internalf("回滚数据格式错误").Wrap(err)
 	}
 	if p.ID == "" {

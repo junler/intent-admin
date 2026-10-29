@@ -182,6 +182,23 @@ func TestDeploymentRiskCeilings(t *testing.T) {
 	}
 }
 
+func TestCriticalOperationsStayHumanOnlyAtCriticalConfiguredCeilings(t *testing.T) {
+	reset(t)
+	install(t)
+	Install(Hooks{MaxAIRisk: RiskCritical, MaxMCPRisk: RiskCritical})
+	called := false
+	Register(Capability[testIn, testOut]{
+		Meta: Meta{Name: "test.humanOnly", Summary: "人工操作", Risk: RiskCritical, AIEnabled: true, MCPEnabled: true},
+		Fn:   func(context.Context, testIn) (testOut, error) { called = true; return testOut{}, nil },
+	})
+	for _, src := range []Source{SourceAI, SourceMCP} {
+		_, err := InvokeJSON(WithActor(context.Background(), actor([]string{SuperPerm}, src, RiskCritical)), "test.humanOnly", json.RawMessage(`{"id":1}`))
+		if errcode.From(err).Code != errcode.RiskExceeded || called {
+			t.Fatalf("source=%s bypassed human-only gate: %v", src, err)
+		}
+	}
+}
+
 func TestEntryPointVisibilityReports404(t *testing.T) {
 	reset(t)
 	install(t)

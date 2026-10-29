@@ -253,3 +253,24 @@ func TestPublicRateLimitBoundsWorkAndFailsClosed(t *testing.T) {
 		t.Fatalf("Redis failure did not fail closed: %d %s", calls, res.Body.String())
 	}
 }
+
+func TestExternalMenusAreExplicitAndValidated(t *testing.T) {
+	for _, raw := range []string{"https://example.com/docs", "http://example.com/help?q=1", "HTTPS://example.com/docs"} {
+		if !validExternalURL(raw) {
+			t.Fatalf("validexternal rejected:%q", raw)
+		}
+	}
+	for _, raw := range []string{"javascript:alert(1)", "data:text/html,<script>alert(1)</script>", "//example.com/", "https://user:pass@example.com/", "https://example.com/\n", " https://example.com/", "https://"} {
+		if validExternalURL(raw) {
+			t.Fatalf("unsafeexternal accepted:%q", raw)
+		}
+	}
+	menus := []model.Menu{{MenuID: 50, MenuName: "文档", Path: "https://example.com/docs", IsFrame: "0", MenuType: "C", Perms: "docs:list", Status: "0", DelFlag: "0"}, {MenuID: 51, MenuName: "恶意", Path: "javascript:alert(1)", IsFrame: "0", MenuType: "C", Perms: "docs:list", Status: "0", DelFlag: "0"}}
+	routes := BuildRoutes(menus, []string{"docs:list"})
+	if len(routes) != 1 || !routes[0].External || routes[0].Path != "https://example.com/docs" {
+		t.Fatalf("externalroute contract:%+v", routes)
+	}
+	if routes := BuildRoutes(menus, nil); len(routes) != 0 {
+		t.Fatal("externalmenu bypassed permissions")
+	}
+}

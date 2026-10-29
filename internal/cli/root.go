@@ -7,7 +7,6 @@
 package cli
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 
@@ -106,11 +105,4 @@ func pick(values ...string) string {
 		}
 	}
 	return ""
-}
-
-// notImplemented returns a command body for phases that are not built yet.
-// A clear "not implemented, see the plan" beats a command that starts and
-// silently does nothing.
-func notImplemented(phase, what string) error {
-	return fmt.Errorf("%s 尚未实现（%s），详见 docs/implementation-plan.md", what, phase)
 }

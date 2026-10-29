@@ -34,6 +34,7 @@ const (
 
 // Service owns signed tokens, revocable Redis sessions and identity queries.
 type Service struct {
+	db       *gorm.DB
 	identity *service.Identity
 	cache    *cache.Cache
 	cfg      *config.Config
@@ -41,7 +42,7 @@ type Service struct {
 }
 
 func New(db *gorm.DB, c *cache.Cache, cfg *config.Config) *Service {
-	return &Service{identity: service.NewIdentity(db), cache: c, cfg: cfg, now: time.Now}
+	return &Service{db: db, identity: service.NewIdentity(db), cache: c, cfg: cfg, now: time.Now}
 }
 
 type Session struct {

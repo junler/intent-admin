@@ -1,0 +1,18 @@
+version: '2'
+run:
+  timeout: 5m
+linters:
+  default: none
+  enable: [govet, staticcheck, errcheck, revive, gosec, ineffassign, misspell]
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+    gosec:
+      excludes: [G104]
+  exclusions:
+    generated: lax
+    presets: [comments, common-false-positives, legacy, std-error-handling]
+formatters:
+  enable: [gofmt]

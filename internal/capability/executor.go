@@ -219,6 +219,11 @@ func checkRisk(e *Entry, actor *Actor) error {
 		allowed = RiskLow
 	}
 	if actor.Source == SourceAI || actor.Source == SourceMCP {
+		// Critical operations always require the human interface, even when
+		// a deployment or an adapter accidentally supplies a critical ceiling.
+		if allowed == RiskCritical {
+			allowed = RiskHigh
+		}
 		if hooks.MaxAIRisk.Valid() && hooks.MaxAIRisk.Level() < allowed.Level() {
 			allowed = hooks.MaxAIRisk
 		}
@@ -290,7 +295,7 @@ func run(ctx context.Context, e *Entry, actor *Actor, in any) (out any, err erro
 		Intent:       actor.Intent,
 		PlanID:       actor.PlanID,
 		ApprovalMode: actor.ApprovalMode,
-		Param:        TruncateJSON(SanitizeValue(in), maxAuditParam),
+		Param:        TruncateJSON(auditParameters(e.Name, in), maxAuditParam),
 		OccurredAt:   started,
 	}
 
@@ -302,7 +307,7 @@ func run(ctx context.Context, e *Entry, actor *Actor, in any) (out any, err erro
 		}
 		// Audit every mutating attempt, successful or not. A rejected write is
 		// exactly the kind of event an operator wants to find later.
-		if !e.Mutating {
+		if !e.Mutating && actor.Source != SourceMCP {
 			return
 		}
 		rec.CostMS = time.Since(started).Milliseconds()
@@ -331,6 +336,7 @@ func run(ctx context.Context, e *Entry, actor *Actor, in any) (out any, err erro
 	recorder := NewRecorder()
 	exec := func(txCtx context.Context) error {
 		txCtx = WithRecorder(txCtx, recorder)
+		txCtx = withInvocation(txCtx, auditParameters(e.Name, in))
 		result, ierr := e.invoke(txCtx, in)
 		if ierr != nil {
 			return ierr
@@ -351,6 +357,9 @@ func run(ctx context.Context, e *Entry, actor *Actor, in any) (out any, err erro
 			return cerr
 		}
 		rec.ChangesetID = id
+		if result := callResult(ctx); result != nil {
+			result.ChangesetID = id
+		}
 		return nil
 	}
 

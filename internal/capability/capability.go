@@ -37,15 +37,15 @@ type Example struct {
 
 // Business type codes recorded on the audit row.
 const (
-	BizOther     = 0
-	BizCreate    = 1
-	BizUpdate    = 2
-	BizDelete    = 3
-	BizGrant     = 4
-	BizExport    = 5
-	BizImport    = 6
-	BizForceOut  = 7
-	BizTruncate  = 8
+	BizOther    = 0
+	BizCreate   = 1
+	BizUpdate   = 2
+	BizDelete   = 3
+	BizGrant    = 4
+	BizExport   = 5
+	BizImport   = 6
+	BizForceOut = 7
+	BizTruncate = 8
 )
 
 // Meta is everything about a capability other than its behaviour.

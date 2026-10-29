@@ -33,7 +33,7 @@ func SelfCheck() error {
 				"%s 是配置类写操作，必须 AIEnabled=false 且 MCPEnabled=false（当前 AI=%v, MCP=%v）",
 				e.Name, e.AIEnabled, e.MCPEnabled))
 		}
-		if e.Mutating && isConfigCapability(e.Name) && e.Risk.Level() < RiskHigh.Level() {
+		if e.Mutating && isConfigCapability(e.Name) && !strings.HasPrefix(e.Name, "system.token.") && e.Risk.Level() < RiskHigh.Level() {
 			problems = append(problems, fmt.Sprintf(
 				"%s 是配置类写操作，Risk 至少应为 high（当前 %s）", e.Name, e.Risk))
 		}

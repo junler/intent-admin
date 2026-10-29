@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 )
@@ -32,6 +33,9 @@ const Redacted = "***"
 // IsSensitive reports whether a field name should be redacted.
 func IsSensitive(name string) bool {
 	lower := strings.ToLower(name)
+	if lower == "max_tokens" || lower == "maxtokens" || lower == "token_id" || lower == "tokenid" || lower == "credentialchanged" {
+		return false
+	}
 	for _, frag := range sensitiveFields {
 		if strings.Contains(lower, frag) {
 			return true
@@ -83,7 +87,9 @@ func SanitizeValue(v any) any {
 		return Redacted
 	}
 	var decoded any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
 		return Redacted
 	}
 	return Sanitize(decoded)

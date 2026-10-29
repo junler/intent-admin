@@ -1,7 +1,8 @@
 package cli
 
 import (
-	"context"
+	"fmt"
+	"os"
 	"os/signal"
 	"syscall"
 
@@ -43,8 +44,14 @@ func newWorkerCmd() *cobra.Command {
 			if concurrency > 0 {
 				cfg.Task.Concurrency = concurrency
 			}
-			_ = context.Background()
-			return notImplemented("Phase 5", "异步任务 worker")
+			app, err := bootstrap.New(cfg)
+			if err != nil {
+				return err
+			}
+			defer app.Close()
+			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+			defer stop()
+			return app.Tasks.RunWorker(ctx)
 		},
 	}
 	cmd.Flags().IntVar(&concurrency, "concurrency", 0, "并发处理数（覆盖配置文件）")
@@ -55,8 +62,19 @@ func newMCPCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "mcp",
 		Short: "以 stdio 方式启动 MCP Server",
-		RunE: func(*cobra.Command, []string) error {
-			return notImplemented("Phase 7", "MCP Server")
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			token := os.Getenv("INTENT_ADMIN_MCP_TOKEN")
+			if token == "" {
+				return fmt.Errorf("请通过 INTENT_ADMIN_MCP_TOKEN 提供个人访问令牌")
+			}
+			app, err := bootstrap.New(cfg)
+			if err != nil {
+				return err
+			}
+			defer app.Close()
+			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+			defer stop()
+			return app.MCP.ServeStdio(ctx, token)
 		},
 	}
 }
