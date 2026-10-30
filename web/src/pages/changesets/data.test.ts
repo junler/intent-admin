@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { changesetPreview, type Changeset } from './data';
+import {
+  type Changeset,
+  type ChangesetItem,
+  changesetPreview,
+  selectableItem,
+  updateRollbackSelection,
+} from './data';
+
 const base: Changeset = {
   changesetId: '1',
   actorType: 'human',
@@ -58,5 +65,37 @@ describe('stored changeset diff rendering', () => {
     });
     expect(preview.skipped).toBe(1);
     expect(preview.changes?.[0].reason).toBe('操作不可逆');
+  });
+});
+
+describe('selective rollback selection', () => {
+  const fixture = base.items?.[0];
+  if (!fixture) throw new Error('missing item fixture');
+  const items: ChangesetItem[] = [
+    { ...fixture, itemId: 1, undoGroup: 'group-a' },
+    { ...fixture, itemId: 2, undoGroup: 'group-a' },
+    { ...fixture, itemId: 3 },
+    { ...fixture, itemId: 4, status: 'rolled_back' },
+    { ...fixture, itemId: 5, op: 'skip', status: 'skipped' },
+    { ...fixture, itemId: 6, status: 'failed' },
+  ];
+  it('selects and deselects atomic groups together without dropping independent rows', () => {
+    expect(updateRollbackSelection(items, [], [1, 3])).toEqual([1, 2, 3]);
+    expect(updateRollbackSelection(items, [1, 2, 3], [2, 3])).toEqual([3]);
+    expect(updateRollbackSelection(items, [1, 2], [1, 2, 3])).toEqual([
+      1, 2, 3,
+    ]);
+  });
+  it('excludes completed and skipped writes while allowing conflict retries', () => {
+    expect(
+      updateRollbackSelection(
+        items,
+        [],
+        items.map((item) => item.itemId),
+      ),
+    ).toEqual([1, 2, 3, 6]);
+    expect(selectableItem(items[3])).toBe(false);
+    expect(selectableItem(items[4])).toBe(false);
+    expect(selectableItem(items[5])).toBe(true);
   });
 });

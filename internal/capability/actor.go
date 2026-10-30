@@ -30,16 +30,19 @@ const SuperPerm = "*:*:*"
 
 // Actor is the authenticated subject of a call, carried in the context.
 type Actor struct {
-	Type      string
-	Source    Source
-	UserID    int64
-	UserName  string
-	Perms     []string
-	MaxRisk   Risk
+	Type     string
+	Source   Source
+	UserID   int64
+	UserName string
+	Perms    []string
+	MaxRisk  Risk
+	// ReadOnly is a delegated scope ceiling, independent of permission names.
+	ReadOnly  bool
 	IP        string
 	UserAgent string
 
-	// TokenID is set when Source is SourceMCP.
+	// TokenID is set when Source is SourceMCP. OAuth access-token IDs are
+	// negative so their rate limits and confirmations cannot collide with PATs.
 	TokenID int64
 	// Intent is the user's original natural-language request, set for the AI
 	// and MCP entry points. It is what makes the audit trail readable months
@@ -52,6 +55,8 @@ type Actor struct {
 	// ApprovalMode records how the user authorised this: auto, confirmed,
 	// diff_confirmed or manual.
 	ApprovalMode string
+	// ApprovedBy identifies the distinct human who approved an immutable plan.
+	ApprovedBy string
 }
 
 // IsSuper reports whether the actor holds the wildcard permission.

@@ -11,7 +11,7 @@ import (
 // menu definitions or credentials. The same SQL also runs in migration 00003.
 // Call after migrating up; the transaction makes an explicit rerun atomic.
 func Seed(ctx context.Context, db *sql.DB) error {
-	scripts := []string{"00003_seed.sql", "00004_full_menu.sql"}
+	scripts := []string{"00003_seed.sql", "00004_full_menu.sql", "00009_extension_menus_notifications.sql"}
 	up := ""
 	for _, name := range scripts {
 		raw, err := FS.ReadFile(name)

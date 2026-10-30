@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"strings"
+	"unicode/utf8"
 )
 
 // sensitiveFields are redacted from capability outputs, audit parameters,
@@ -117,7 +118,7 @@ func SanitizeMap(m map[string]any) map[string]any {
 // have a fixed width. The marker makes a truncated payload obvious rather than
 // looking like malformed JSON.
 func TruncateJSON(v any, max int) string {
-	if v == nil {
+	if v == nil || max <= 0 {
 		return ""
 	}
 	raw, err := json.Marshal(v)
@@ -127,8 +128,12 @@ func TruncateJSON(v any, max int) string {
 	if len(raw) <= max {
 		return string(raw)
 	}
-	if max <= 3 {
-		return string(raw[:max])
+	end, suffix := max, ""
+	if max > 3 {
+		end, suffix = max-3, "..."
 	}
-	return string(raw[:max-3]) + "..."
+	for end > 0 && !utf8.RuneStart(raw[end]) {
+		end--
+	}
+	return string(raw[:end]) + suffix
 }

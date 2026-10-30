@@ -11,6 +11,7 @@
     "test": "vitest run",
     "setup": "node scripts/generate-pages.mjs && max setup",
     "typecheck": "tsc --noEmit",
+    "i18n:check": "node scripts/localize-source.mjs --check",
     "postinstall": "node scripts/generate-pages.mjs && max setup"
   },
   "dependencies": {

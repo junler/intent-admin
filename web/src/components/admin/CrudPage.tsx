@@ -1,28 +1,39 @@
-import { ProForm, ProTable } from '@ant-design/pro-components';
-import { history } from '@umijs/max';
-import { usePageActive, usePageLocation } from '@/contexts/ActivePageContext';
-import { usePageContext } from '@/stores/pageContext';
-import { readCrudQuery, writeCrudQuery, listCapability } from './query';
-import { useCallback, useEffect, useState, useId } from 'react';
-import { Button, Card, Form, Modal, Space, Tag } from 'antd';
 import {
+  DeleteOutlined,
+  DownloadOutlined,
   PlusOutlined,
   ReloadOutlined,
-  DownloadOutlined,
-  DeleteOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
+import { PageContainer, ProForm, ProTable } from '@ant-design/pro-components';
+import { history } from '@umijs/max';
+import { Button, Card, Empty, Form, Modal, Space, Tag, Typography } from 'antd';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { Auth } from '@/components/auth/Auth';
+import ImportDialog from '@/components/import/ImportDialog';
+import { usePageActive, usePageLocation } from '@/contexts/ActivePageContext';
+import { getLocale, t } from '@/i18n';
+import { usePageContext } from '@/stores/pageContext';
 import { api, download, type PageData } from '@/utils/request';
-import { Fields } from './Fields';
-import { allRows } from './data';
 import {
-  editFormValues,
-  writeFormValues,
   deletionArgs,
+  editFormValues,
   rowsToTree,
+  writeFormValues,
 } from './actions';
-import { useAdminAction } from './useAdminAction';
+import { allRows } from './data';
+import { Fields } from './Fields';
+import { listCapability, readCrudQuery, writeCrudQuery } from './query';
 import type { CrudConfig, Field, Row, RowAction } from './types';
+import { useAdminAction } from './useAdminAction';
+
+const importBases = new Set([
+  '/system/user',
+  '/system/role',
+  '/system/config',
+  '/system/dict/data',
+  '/demo/item',
+]);
 
 export function CrudPage(cfg: CrudConfig) {
   const active = usePageActive();
@@ -151,14 +162,18 @@ export function CrudPage(cfg: CrudConfig) {
         (field) => field.type === 'json' && raw[field.name],
       );
       if (invalid)
-        form.setFields([{ name: invalid.name, errors: ['请输入有效 JSON'] }]);
+        form.setFields([
+          { name: invalid.name, errors: [t('请输入有效 JSON')] },
+        ]);
       return;
     }
     if (cfg.prepare) values = cfg.prepare(values, !!editing);
     if (editing) values[cfg.idKey] = editing[cfg.idKey];
     const updating = !!editing;
     await action.run({
-      title: updating ? `修改${cfg.title}` : `新增${cfg.title}`,
+      title: updating
+        ? t('修改{value0}', { value0: cfg.title })
+        : t('新增{value0}', { value0: cfg.title }),
       url: updating ? (cfg.updateUrl ?? cfg.base) : (cfg.createUrl ?? cfg.base),
       method: updating ? 'PUT' : 'POST',
       args: values,
@@ -169,7 +184,10 @@ export function CrudPage(cfg: CrudConfig) {
   }
   const remove = (ids: unknown[]) =>
     action.run({
-      title: `删除 ${ids.length} 条${cfg.title}`,
+      title: t('删除 {value0} 条{value1}', {
+        value0: ids.length,
+        value1: cfg.title,
+      }),
       url: `${cfg.base}/${ids.join(',')}`,
       method: 'DELETE',
       args: deletionArgs(cfg.idKey, ids),
@@ -192,10 +210,19 @@ export function CrudPage(cfg: CrudConfig) {
         width: f.type === 'number' ? 100 : 150,
         ellipsis: true,
         render: (_value: any, row: Row) =>
-          f.render ? f.render(row[f.name], row) : renderValue(f, row[f.name]),
+          f.render
+            ? f.render(row[f.name], row)
+            : renderValue(
+                f,
+                cfg.base === '/monitor/operlog' &&
+                  f.name === 'title' &&
+                  typeof row[f.name] === 'string'
+                  ? t(row[f.name])
+                  : row[f.name],
+              ),
       })),
     {
-      title: '操作',
+      title: t('操作'),
       key: 'actions',
       width: Math.max(
         190,
@@ -207,12 +234,17 @@ export function CrudPage(cfg: CrudConfig) {
           {cfg.canEdit !== false && (
             <Auth perm={cfg.perm ? `${cfg.perm}:edit` : ''}>
               <Button size="small" type="link" onClick={() => void edit(row)}>
-                编辑
+                {t('编辑')}
               </Button>
             </Auth>
           )}
           {cfg.actions?.map((spec) => (
-            <ActionButton key={spec.label} spec={spec} row={row} reload={load} />
+            <ActionButton
+              key={spec.label}
+              spec={spec}
+              row={row}
+              reload={load}
+            />
           ))}
           {cfg.canDelete !== false && (
             <Auth perm={cfg.perm ? `${cfg.perm}:remove` : ''}>
@@ -222,7 +254,7 @@ export function CrudPage(cfg: CrudConfig) {
                 size="small"
                 onClick={() => void remove([row[cfg.idKey]])}
               >
-                删除
+                {t('删除')}
               </Button>
             </Auth>
           )}
@@ -230,82 +262,92 @@ export function CrudPage(cfg: CrudConfig) {
       ),
     },
   ];
-  return (
-    <>
-      <Card
-        title={cfg.title}
-        extra={
-          <Space wrap>
-            {cfg.extra}
-            {cfg.export && (
-              <Auth perm={cfg.perm ? `${cfg.perm}:export` : ''}>
-                <Button
-                  icon={<DownloadOutlined />}
-                  onClick={() =>
-                    void download(`${cfg.base}/list/export`, filters)
-                  }
-                >
-                  导出
-                </Button>
-              </Auth>
-            )}
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => void load().catch(() => {})}
-            >
-              刷新
-            </Button>
-            {cfg.canCreate !== false && (
-              <Auth perm={cfg.perm ? `${cfg.perm}:add` : ''}>
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={() => void edit()}
-                >
-                  新增
-                </Button>
-              </Auth>
-            )}
-          </Space>
-        }
-      >
-        <Form
-          name={`search-${cfg.idKey}`}
-          initialValues={initialQuery.filters}
-          form={search}
-          layout="inline"
-          className="mb-4"
-          onFinish={(values) => {
-            changeQuery(values, { ...page, pageNum: 1 });
+  const toolbar = [
+    <Space wrap key="actions" className="intent-table-actions">
+      {cfg.extra}
+      {importBases.has(cfg.base) && (
+        <ImportDialog
+          base={cfg.base}
+          permission={
+            cfg.base === '/demo/item' ? 'demo:item:edit' : `${cfg.perm}:add`
+          }
+          onSuccess={() => {
+            setSelected([]);
+            void load().catch(() => {});
           }}
-        >
-          <Fields
-            fields={cfg.fields
-              .filter((f) => f.search)
-              .map((field) => ({
+        />
+      )}
+      {cfg.export && (
+        <Auth perm={cfg.perm ? `${cfg.perm}:export` : ''}>
+          <Button
+            icon={<DownloadOutlined />}
+            onClick={() => void download(`${cfg.base}/list/export`, filters)}
+          >
+            {t('导出')}
+          </Button>
+        </Auth>
+      )}
+      {cfg.canCreate !== false && (
+        <Auth perm={cfg.perm ? `${cfg.perm}:add` : ''}>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => void edit()}
+          >
+            {t('新增')}
+          </Button>
+        </Auth>
+      )}
+    </Space>,
+  ];
+  const searchFields = cfg.fields.filter((field) => field.search);
+  return (
+    <PageContainer title={cfg.title} className="intent-crud-page">
+      {searchFields.length > 0 && (
+        <Card className="intent-search-card">
+          <Form
+            name={`search-${cfg.idKey}`}
+            initialValues={initialQuery.filters}
+            form={search}
+            layout="vertical"
+            className="intent-search-form"
+            onFinish={(values) => {
+              changeQuery(values, { ...page, pageNum: 1 });
+            }}
+          >
+            <Fields
+              fields={searchFields.map((field) => ({
                 ...field,
                 form: true,
                 required: false,
                 createRequired: false,
                 rules: [],
               }))}
-          />
-          <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit">
-                查询
-              </Button>
-              <Button
-                onClick={() => {
-                  search.resetFields();
-                  changeQuery({}, { ...page, pageNum: 1 });
-                }}
-              >
-                重置
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
+            />
+            <Form.Item className="intent-search-buttons">
+              <Space>
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  icon={<SearchOutlined />}
+                >
+                  {t('查询')}
+                </Button>
+                <Button
+                  icon={<ReloadOutlined />}
+                  onClick={() => {
+                    search.resetFields();
+                    changeQuery({}, { ...page, pageNum: 1 });
+                  }}
+                >
+                  {t('重置')}
+                </Button>
+              </Space>
+            </Form.Item>
+          </Form>
+        </Card>
+      )}
+      <div className="intent-table-card">
         {cfg.canDelete !== false &&
           cfg.batchDelete !== false &&
           selected.length > 0 && (
@@ -316,16 +358,39 @@ export function CrudPage(cfg: CrudConfig) {
                 icon={<DeleteOutlined />}
                 onClick={() => void remove(selected)}
               >
-                删除选中 ({selected.length})
+                {t('删除选中 (')}
+                {selected.length})
               </Button>
             </Auth>
           )}
         <ProTable<Row>
+          className="intent-data-table"
           search={false}
-          options={{ density: true, fullScreen: true, setting: true }}
-          toolBarRender={false}
+          headerTitle={
+            <Space size={10}>
+              <span>{t('数据列表')}</span>
+              <Typography.Text type="secondary" className="intent-table-count">
+                {t('共 {count} 条', { count: total })}
+              </Typography.Text>
+            </Space>
+          }
+          options={{
+            reload: () => void load().catch(() => {}),
+            density: true,
+            fullScreen: true,
+            setting: true,
+          }}
+          toolBarRender={() => toolbar}
           rowKey={cfg.idKey}
           loading={loading}
+          locale={{
+            emptyText: (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={t('暂无数据，试试调整筛选条件')}
+              />
+            ),
+          }}
           columns={columns}
           dataSource={cfg.tree ? rowsToTree(rows, cfg.idKey) : rows}
           scroll={{ x: 'max-content' }}
@@ -345,19 +410,25 @@ export function CrudPage(cfg: CrudConfig) {
                   pageSize: page.pageSize,
                   total,
                   showSizeChanger: true,
-                  showTotal: (t) => `共 ${t} 条`,
+                  showTotal: (total) => t('共 {value0} 条', { value0: total }),
                   onChange: (pageNum, pageSize) =>
                     changeQuery(filters, { pageNum, pageSize }),
                 }
           }
         />
-      </Card>
+      </div>
       <Modal
-        title={editing ? '编辑' : '新增'}
+        title={
+          editing
+            ? t('编辑{title}', { title: cfg.title })
+            : t('新增{title}', { title: cfg.title })
+        }
+        className="intent-editor-modal"
         open={active && editing !== undefined}
         onCancel={() => setEditing(undefined)}
         onOk={() => void save().catch(() => {})}
-        width={700}
+        width={760}
+        okText={t('预览变更')}
         destroyOnHidden
       >
         <ProForm
@@ -370,12 +441,14 @@ export function CrudPage(cfg: CrudConfig) {
               form.setFieldsValue(cfg.onValuesChange(changed, values));
           }}
         >
-          <Fields fields={cfg.fields} editing={!!editing} />
+          <div className="intent-form-grid">
+            <Fields fields={cfg.fields} editing={!!editing} />
+          </div>
           {cfg.editorExtra?.(form, editing ?? null)}
         </ProForm>
       </Modal>
       {action.modal}
-    </>
+    </PageContainer>
   );
 }
 function renderValue(field: Field, value: any) {
@@ -385,10 +458,21 @@ function renderValue(field: Field, value: any) {
     /(?:Time|Date|At)$/.test(field.name) &&
     !Number.isNaN(Date.parse(value))
   )
-    return new Date(value).toLocaleString();
+    return new Date(value).toLocaleString(getLocale());
   if (field.type === 'switch')
-    return <Tag color={value ? 'green' : 'default'}>{value ? '是' : '否'}</Tag>;
+    return (
+      <Tag color={value ? 'green' : 'default'}>{value ? t('是') : t('否')}</Tag>
+    );
   const option = field.options?.find((o) => o.value === value);
+  if (option && field.name === 'status')
+    return (
+      <Tag
+        bordered={false}
+        color={String(value) === '0' ? 'success' : 'default'}
+      >
+        {option.label}
+      </Tag>
+    );
   return option?.label ?? String(value);
 }
 function ActionButton({
@@ -408,6 +492,7 @@ function ActionButton({
   const action = useAdminAction(() => void reload().catch(() => {}));
   async function execute(values: Row = {}) {
     setOpen(false);
+    const executeAction = spec.execute;
     const url =
       typeof spec.url === 'function' ? spec.url(row) : (spec.url ?? '');
     await action.run({
@@ -419,7 +504,7 @@ function ActionButton({
         typeof spec.previewUrl === 'function'
           ? spec.previewUrl(row)
           : spec.previewUrl,
-      execute: spec.execute ? () => spec.execute!(row, values) : undefined,
+      execute: executeAction ? () => executeAction(row, values) : undefined,
       result: spec.result,
     });
   }
@@ -465,7 +550,9 @@ function ActionButton({
         {spec.label}
       </Button>
       <Modal
+        className="intent-editor-modal"
         title={spec.label}
+        okText={t('预览变更')}
         open={active && open}
         onCancel={() => setOpen(false)}
         onOk={() =>

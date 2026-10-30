@@ -10,7 +10,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
+	"os"
 	"time"
 
 	"gorm.io/driver/postgres"
@@ -41,7 +43,7 @@ func IsReadOnly(ctx context.Context) bool {
 // OpenDB connects to PostgreSQL and installs the dry-run write guard.
 func Open(cfg *config.Config) (*gorm.DB, error) {
 	db, err := gorm.Open(postgres.Open(cfg.DB.DSN()), &gorm.Config{
-		Logger:                 logger.Default.LogMode(gormLogLevel(cfg.DB.LogLevel)),
+		Logger:                 logger.New(log.New(os.Stderr, "", log.LstdFlags), logger.Config{LogLevel: gormLogLevel(cfg.DB.LogLevel), SlowThreshold: 200 * time.Millisecond, IgnoreRecordNotFoundError: true, ParameterizedQueries: true, Colorful: false}),
 		SkipDefaultTransaction: true,
 		// The project uses explicit column names everywhere (plan §9), so the
 		// default pluralising namer is kept but table names are declared on

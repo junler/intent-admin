@@ -33,6 +33,10 @@ type Service struct {
 	db         *gorm.DB
 	opts       Options
 	changesets *changeset.Service
+	// ActorLoader must bypass permission caches and join the ambient transaction.
+	ActorLoader func(context.Context, int64) (*capability.Actor, error)
+	// Notify delivers a personal notification; it must not publish business data.
+	Notify func(context.Context, ApprovalNotification) error
 }
 
 func New(db *gorm.DB, opts Options) *Service {
@@ -81,6 +85,8 @@ type Plan struct {
 	PageContext map[string]any  `json:"pageContext,omitempty"`
 	OnError     string          `json:"onError"`
 	UserID      int64           `json:"-"`
+	ApprovalID  string          `json:"-"`
+	Approval    *Approval       `json:"approval,omitempty"`
 }
 type CreateIn struct {
 	Intent      string         `json:"intent"`
@@ -115,10 +121,11 @@ type metadata struct {
 	Context     map[string]any `json:"context"`
 	OnError     string         `json:"onError"`
 	ChangesetID string         `json:"changesetId,omitempty"`
+	ApprovalID  string         `json:"approvalId,omitempty"`
 }
 
 func toRow(p *Plan) row {
-	return row{ID: p.ID, UserID: p.UserID, SessionID: p.SessionID, Intent: p.Intent, Steps: encode(p.Steps), MaxRisk: p.MaxRisk, AffectedCount: p.Affected, Mode: p.Mode, Status: p.Status, PageContext: encode(metadata{Context: p.PageContext, OnError: p.OnError, ChangesetID: p.ChangesetID}), CreateTime: p.CreateTime, ExpireTime: p.ExpiresAt}
+	return row{ID: p.ID, UserID: p.UserID, SessionID: p.SessionID, Intent: p.Intent, Steps: encode(p.Steps), MaxRisk: p.MaxRisk, AffectedCount: p.Affected, Mode: p.Mode, Status: p.Status, PageContext: encode(metadata{Context: p.PageContext, OnError: p.OnError, ChangesetID: p.ChangesetID, ApprovalID: p.ApprovalID}), CreateTime: p.CreateTime, ExpireTime: p.ExpiresAt}
 }
 func fromRow(r row) (*Plan, error) {
 	p := &Plan{ID: r.ID, UserID: r.UserID, SessionID: r.SessionID, Intent: r.Intent, MaxRisk: r.MaxRisk, Affected: r.AffectedCount, Mode: r.Mode, Status: r.Status, CreateTime: r.CreateTime, ExpiresAt: r.ExpireTime}
@@ -132,6 +139,7 @@ func fromRow(r row) (*Plan, error) {
 		}
 	}
 	p.PageContext, p.OnError, p.ChangesetID = meta.Context, meta.OnError, meta.ChangesetID
+	p.ApprovalID = meta.ApprovalID
 	return p, nil
 }
 func (s *Service) principal(ctx context.Context) (context.Context, *capability.Actor, error) {
@@ -143,6 +151,28 @@ func (s *Service) principal(ctx context.Context) (context.Context, *capability.A
 		return ctx, nil, errcode.Forbiddenf("没有使用 AI 计划的权限")
 	}
 	copy := *a
+	if s.ActorLoader != nil {
+		live, err := s.liveActor(ctx, a.UserID)
+		if err != nil {
+			return ctx, nil, err
+		}
+		if a.IsSuper() {
+			copy.Perms = append([]string(nil), live.Perms...)
+		} else {
+			copy.Perms = nil
+			for _, perm := range a.Perms {
+				if live.Can(perm) {
+					copy.Perms = append(copy.Perms, perm)
+				}
+			}
+		}
+		if !copy.Can("ai:agent:use") {
+			return ctx, nil, errcode.Forbiddenf("没有使用 AI 计划的权限")
+		}
+		if !copy.MaxRisk.Valid() || live.MaxRisk.Level() < copy.MaxRisk.Level() {
+			copy.MaxRisk = live.MaxRisk
+		}
+	}
 	copy.Source = capability.SourceAI
 	copy.Type = capability.ActorAgent
 	if !copy.MaxRisk.Valid() || s.opts.MaxRisk.Level() < copy.MaxRisk.Level() {
@@ -172,7 +202,13 @@ func (s *Service) load(ctx context.Context, id string, lock bool) (*Plan, error)
 	}
 	return fromRow(r)
 }
-func (s *Service) Get(ctx context.Context, id string) (*Plan, error) { return s.load(ctx, id, false) }
+func (s *Service) Get(ctx context.Context, id string) (*Plan, error) {
+	p, err := s.load(ctx, id, false)
+	if err == nil {
+		err = s.attachApproval(ctx, p)
+	}
+	return p, err
+}
 func (s *Service) List(ctx context.Context) ([]Plan, error) {
 	_, a, err := s.principal(ctx)
 	if err != nil {
@@ -186,6 +222,9 @@ func (s *Service) List(ctx context.Context) ([]Plan, error) {
 	for _, r := range rows {
 		p, err := fromRow(r)
 		if err != nil {
+			return nil, err
+		}
+		if err := s.attachApproval(ctx, p); err != nil {
 			return nil, err
 		}
 		out = append(out, *p)
@@ -357,11 +396,17 @@ func (s *Service) Preview(ctx context.Context, id string) (*Plan, error) {
 		if p.Status == "done" || p.Status == "aborted" {
 			return errcode.Conflictf("该计划不能再次预演")
 		}
+		if e = s.invalidateApproval(txctx, p, "stale"); e != nil {
+			return e
+		}
 		if e = s.preview(txctx, p); e != nil {
 			return e
 		}
 		return s.save(txctx, p)
 	})
+	if err == nil {
+		err = s.attachApproval(ctx, p)
+	}
 	return p, err
 }
 func (s *Service) Apply(ctx context.Context, id string, in ApplyIn) (*Plan, error) {
@@ -382,6 +427,9 @@ func (s *Service) Apply(ctx context.Context, id string, in ApplyIn) (*Plan, erro
 			return e
 		}
 		result = p
+		if p.ApprovalID != "" && !approvedContext(txctx, p.ApprovalID) {
+			return errcode.Forbiddenf("此计划已进入跨人审批，请通过审批记录执行或先撤销审批")
+		}
 		if p.Status != "previewed" && p.Status != "partial" {
 			return errcode.Conflictf("计划需要先预演或已执行")
 		}
@@ -417,9 +465,11 @@ func (s *Service) Apply(ctx context.Context, id string, in ApplyIn) (*Plan, erro
 		p.Mode = in.Mode
 		a.Intent = p.Intent
 		a.PlanID = p.ID
-		a.ApprovalMode = "confirmed"
-		if p.MaxRisk.Level() >= capability.RiskHigh.Level() {
-			a.ApprovalMode = "diff_confirmed"
+		if !approvedContext(txctx, p.ApprovalID) {
+			a.ApprovalMode = "confirmed"
+			if p.MaxRisk.Level() >= capability.RiskHigh.Level() {
+				a.ApprovalMode = "diff_confirmed"
+			}
 		}
 		a.ChangesetID = p.ChangesetID
 		chosen := -1
@@ -524,13 +574,16 @@ func (s *Service) Abort(ctx context.Context, id string) (*Plan, error) {
 			return errcode.Conflictf("已完成计划不能取消")
 		}
 		p.Status = "aborted"
+		if e = s.invalidateApproval(txctx, p, "revoked"); e != nil {
+			return e
+		}
 		return s.save(txctx, p)
 	})
 	return p, err
 }
 func (s *Service) lockBusiness(ctx context.Context) error {
 	var tables []string
-	if err := dbx.DBFrom(ctx, s.db).Raw(`SELECT tablename FROM pg_tables WHERE schemaname=current_schema() AND tablename NOT IN ('schema_migrations','sys_ai_plan','sys_changeset','sys_changeset_item','sys_oper_log','sys_login_log','sys_job_log') ORDER BY tablename`).Scan(&tables).Error; err != nil {
+	if err := dbx.DBFrom(ctx, s.db).Raw(`SELECT tablename FROM pg_tables WHERE schemaname=current_schema() AND tablename NOT IN ('schema_migrations','sys_ai_plan','sys_ai_plan_approval','sys_changeset','sys_changeset_item','sys_oper_log','sys_login_log','sys_job_log') ORDER BY tablename`).Scan(&tables).Error; err != nil {
 		return err
 	}
 	return s.changesets.LockEntities(ctx, tables)

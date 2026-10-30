@@ -145,13 +145,14 @@ type AIBootstrap struct {
 }
 
 type MCP struct {
-	Enabled    bool          `mapstructure:"enabled"`
-	Path       string        `mapstructure:"path"`
-	ToolMode   string        `mapstructure:"tool_mode"` // meta | flat
-	ToolTags   []string      `mapstructure:"tool_tags"`
-	MaxRisk    string        `mapstructure:"max_risk"`
-	ConfirmTTL time.Duration `mapstructure:"confirm_ttl"`
-	RatePerMin int           `mapstructure:"rate_per_min"`
+	OAuthIssuer string        `mapstructure:"oauth_issuer"`
+	Enabled     bool          `mapstructure:"enabled"`
+	Path        string        `mapstructure:"path"`
+	ToolMode    string        `mapstructure:"tool_mode"` // meta | flat
+	ToolTags    []string      `mapstructure:"tool_tags"`
+	MaxRisk     string        `mapstructure:"max_risk"`
+	ConfirmTTL  time.Duration `mapstructure:"confirm_ttl"`
+	RatePerMin  int           `mapstructure:"rate_per_min"`
 }
 
 type Log struct {
@@ -210,6 +211,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ai.session_ttl", "168h")
 
 	v.SetDefault("mcp.enabled", true)
+	v.SetDefault("mcp.oauth_issuer", "")
 	v.SetDefault("mcp.path", "/mcp")
 	v.SetDefault("mcp.tool_mode", "meta")
 	v.SetDefault("mcp.max_risk", "low")

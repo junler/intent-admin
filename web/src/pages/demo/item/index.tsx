@@ -1,4 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import {
+  DeleteOutlined,
+  DownloadOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import {
   Button,
   Card,
@@ -11,17 +15,15 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import {
-  DeleteOutlined,
-  DownloadOutlined,
-  ReloadOutlined,
-} from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { useCallback, useEffect, useState } from 'react';
+import { Auth } from '@/components/auth/Auth';
 
 import { DiffTable } from '@/components/diff/DiffTable';
-import { Auth } from '@/components/auth/Auth';
+import ImportDialog from '@/components/import/ImportDialog';
 import { usePerm } from '@/hooks/usePerm';
 import { usePreviewAction } from '@/hooks/usePreviewAction';
+import { t } from '@/i18n';
 import { usePageContext } from '@/stores/pageContext';
 import { api, download, type PageData } from '@/utils/request';
 
@@ -43,8 +45,8 @@ interface Filters {
 }
 
 const statusLabel: Record<string, { text: string; color: string }> = {
-  '0': { text: '正常', color: 'green' },
-  '1': { text: '停用', color: 'red' },
+  '0': { text: t('正常'), color: 'green' },
+  '1': { text: t('停用'), color: 'red' },
 };
 
 /**
@@ -120,18 +122,18 @@ export default function DemoItemPage() {
   });
 
   const columns: ColumnsType<DemoItem> = [
-    { title: '编号', dataIndex: 'itemId', width: 80 },
-    { title: '名称', dataIndex: 'name', width: 180 },
-    { title: '分类', dataIndex: 'category', width: 120 },
+    { title: t('编号'), dataIndex: 'itemId', width: 80 },
+    { title: t('名称'), dataIndex: 'name', width: 180 },
+    { title: t('分类'), dataIndex: 'category', width: 120 },
     {
-      title: '金额',
+      title: t('金额'),
       dataIndex: 'amount',
       width: 120,
       align: 'right',
       render: (cents: number) => (cents / 100).toFixed(2),
     },
     {
-      title: '状态',
+      title: t('状态'),
       dataIndex: 'status',
       width: 100,
       render: (s: string) => {
@@ -139,9 +141,9 @@ export default function DemoItemPage() {
         return <Tag color={meta.color}>{meta.text}</Tag>;
       },
     },
-    { title: '备注', dataIndex: 'remark', ellipsis: true },
+    { title: t('备注'), dataIndex: 'remark', ellipsis: true },
     {
-      title: '操作',
+      title: t('操作'),
       key: 'action',
       width: 160,
       fixed: 'right',
@@ -158,7 +160,7 @@ export default function DemoItemPage() {
                 })
               }
             >
-              {row.status === '0' ? '停用' : '启用'}
+              {row.status === '0' ? t('停用') : t('启用')}
             </Button>
           </Auth>
           <Auth perm="demo:item:remove">
@@ -168,7 +170,7 @@ export default function DemoItemPage() {
               danger
               onClick={() => void remove.run({ itemIds: [row.itemId] })}
             >
-              删除
+              {t('删除')}
             </Button>
           </Auth>
         </Space>
@@ -178,19 +180,27 @@ export default function DemoItemPage() {
 
   return (
     <Card
-      title="示例条目"
+      title={t('示例条目')}
       extra={
         <Space>
+          <ImportDialog
+            base="/demo/item"
+            permission="demo:item:edit"
+            onSuccess={() => {
+              setSelected([]);
+              void load().catch(() => {});
+            }}
+          />
           <Auth perm="demo:item:export">
             <Button
               icon={<DownloadOutlined />}
               onClick={() => void download('/demo/item/list/export', filters)}
             >
-              导出
+              {t('导出')}
             </Button>
           </Auth>
           <Button icon={<ReloadOutlined />} onClick={() => void load()}>
-            刷新
+            {t('刷新')}
           </Button>
         </Space>
       }
@@ -204,27 +214,27 @@ export default function DemoItemPage() {
           setPage((p) => ({ ...p, pageNum: 1 }));
         }}
       >
-        <Form.Item name="name" label="名称">
-          <Input placeholder="模糊匹配" allowClear className="w-40" />
+        <Form.Item name="name" label={t('名称')}>
+          <Input placeholder={t('模糊匹配')} allowClear className="w-40" />
         </Form.Item>
-        <Form.Item name="category" label="分类">
-          <Input placeholder="精确匹配" allowClear className="w-32" />
+        <Form.Item name="category" label={t('分类')}>
+          <Input placeholder={t('精确匹配')} allowClear className="w-32" />
         </Form.Item>
-        <Form.Item name="status" label="状态">
+        <Form.Item name="status" label={t('状态')}>
           <Select
             allowClear
-            placeholder="全部"
+            placeholder={t('全部')}
             className="w-28"
             options={[
-              { value: '0', label: '正常' },
-              { value: '1', label: '停用' },
+              { value: '0', label: t('正常') },
+              { value: '1', label: t('停用') },
             ]}
           />
         </Form.Item>
         <Form.Item>
           <Space>
             <Button type="primary" htmlType="submit">
-              查询
+              {t('查询')}
             </Button>
             <Button
               onClick={() => {
@@ -233,7 +243,7 @@ export default function DemoItemPage() {
                 setPage((p) => ({ ...p, pageNum: 1 }));
               }}
             >
-              重置
+              {t('重置')}
             </Button>
           </Space>
         </Form.Item>
@@ -242,7 +252,8 @@ export default function DemoItemPage() {
       {canRemove && selected.length > 0 && (
         <Space className="mb-3">
           <Typography.Text type="secondary">
-            已选 {selected.length} 项
+            {t('已选 ')}
+            {selected.length} {t(' 项')}
           </Typography.Text>
           <Button
             danger
@@ -252,7 +263,7 @@ export default function DemoItemPage() {
               void remove.run({ itemIds: selected.map((r) => r.itemId) })
             }
           >
-            批量删除
+            {t('批量删除')}
           </Button>
         </Space>
       )}
@@ -276,16 +287,21 @@ export default function DemoItemPage() {
           pageSize: data.pageSize || page.pageSize,
           total: data.total,
           showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
+          showTotal: (total) => t('共 {value0} 条', { value0: total }),
           onChange: (pageNum, pageSize) => setPage({ pageNum, pageSize }),
         }}
       />
 
-      <PreviewModal title="删除确认" action={remove} okText="确认删除" danger />
       <PreviewModal
-        title="状态变更确认"
+        title={t('删除确认')}
+        action={remove}
+        okText={t('确认删除')}
+        danger
+      />
+      <PreviewModal
+        title={t('状态变更确认')}
         action={toggleStatus}
-        okText="确认执行"
+        okText={t('确认执行')}
       />
     </Card>
   );
@@ -310,14 +326,14 @@ function PreviewModal({
       onCancel={close}
       onOk={() => void confirm()}
       okText={okText}
-      cancelText="取消"
+      cancelText={t('取消')}
       okButtonProps={{ danger, loading: state.executing }}
       confirmLoading={state.executing}
       width={760}
       destroyOnHidden
     >
       {state.loading && (
-        <Typography.Text type="secondary">正在预演…</Typography.Text>
+        <Typography.Text type="secondary">{t('正在预演…')}</Typography.Text>
       )}
       {state.preview && <DiffTable preview={state.preview} />}
     </Modal>

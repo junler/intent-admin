@@ -35,6 +35,7 @@ func Register(db *gorm.DB, c *cache.Cache, cfg *config.Config, r *task.Runtime) 
 	s.registerCache()
 	s.registerOnline()
 	s.registerServer()
+	s.registerQueue()
 }
 
 type JobListIn struct {

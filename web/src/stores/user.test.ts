@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('antd', () => ({ message: { error: vi.fn() } }));
 
-import { resumeSession, useUserStore } from './user';
 import { auth, http } from '@/utils/request';
+import { resumeSession, useUserStore } from './user';
 
 const replace = vi.fn();
 

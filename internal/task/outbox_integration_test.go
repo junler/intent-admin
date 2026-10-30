@@ -106,6 +106,25 @@ func TestTransactionalOutboxIntegration(t *testing.T) {
 	if err != nil || state.DispatchState != "delivered" {
 		t.Fatalf("bad dispatch state: %v %v", state, err)
 	}
+	// Queue controls must preserve durable completion even if Redis has an
+	// archived delivery after a broker restore. Deleting that delivery only
+	// removes Redis data; the completion marker still prevents re-execution.
+	if err = db.Model(&Outbox{}).Where("task_id=?", id).Update("execution_state", "done").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = ins.ArchiveTask(queue, id); err != nil {
+		t.Fatal(err)
+	}
+	ref := QueueTaskRef{Queue: "default", TaskID: id, ExpectedState: "archived"}
+	if _, err = r.QueueAction(ctx, "retry", ref); err == nil {
+		t.Fatal("queue controls retried a durably completed operation")
+	}
+	if _, err = r.QueueAction(ctx, "delete", ref); err != nil {
+		t.Fatal(err)
+	}
+	if state, err = r.DispatchStatus(ctx, id); err != nil || state.ExecutionState != "done" {
+		t.Fatal("queue deletion removed durable completion")
+	}
 	// Redis downtime leaves a committed pending record, not a lost task or a
 	// falsely queued result. Recovery is a retry with the same stable task ID.
 	r.client.Close()

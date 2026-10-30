@@ -4,7 +4,7 @@ Intent is an MIT-licensed, capability-driven administration system. Keep domain-
 
 ## Development environment
 
-Install Go 1.26+, Node.js 22+, npm, PostgreSQL 17 and Redis 7. The frontend uses the official Ant Design Pro v6 scaffold, Umi Max and Pro Components. Its npm lockfile is authoritative.
+Install Go 1.26+, Node.js 22+, npm, PostgreSQL 17 and Redis 7. The frontend uses the official Ant Design Pro v6 scaffold, Umi Max, ProLayout, ProTable and ProForm. Its npm lockfile is authoritative. Use the shared layout, cards and form controls so new pages follow the same spacing, responsive behavior and theme.
 
 ```sh
 cp configs/config.example.yaml configs/config.yaml
@@ -93,26 +93,59 @@ Feature packages may perform this recording around a service result to keep the 
 
 Use explicit risks: low for reads, medium for a single change, high for deletion/bulk authorization, critical for irreversible administration. Missing risk fails closed. Add meaningful Chinese examples, field descriptions and business invariants to the knowledge registry.
 
+## Extension contracts
+
+XLSX imports in `internal/feature/importer` compose the ordinary create capabilities for users, roles, parameters, dictionary data and demo items. Keep them create-only and permission-equivalent to the original capability. A file accepts at most 200 data rows and 5 MB, subject to a lower configured changeset limit. Preview is read-only, owner-bound and valid for 10 minutes. Confirmation rechecks the fingerprint and all rows inside one transaction; any failure rolls back the batch. Do not accept password/grant columns, credential parameters, formulas or arbitrary nested input. Add a supported entity through an explicit column specification and its reversible create operation.
+
+Cross-person approvals in `internal/plan` bind a different assigned reviewer to a saved plan fingerprint. Keep request, decision and execution limited to the relevant logged-in people. Both participants need the original permissions and current AI risk allowance; the reviewer also needs `ai:plan:approve`. Approval is not a grant. Changes to arguments, resolved references, data, permissions or risk require fresh review. Preserve `Actor.ApprovedBy` through changesets and audits. Private workflow notifications join the transaction through `internal/notification`; never replace them with public notices.
+
+Selective compensation in `internal/changeset` accepts `{id, itemIds, previewHash}`. Omitting `itemIds` keeps the full remaining-items operation; an explicit empty array is invalid. The preview supplies `confirmationHash`; pass it back as `previewHash` for a selection. Validate that every item belongs to that changeset, reject duplicates, keep each `undoGroup` atomic and retain conflict fields for retries. Completed selections are idempotent. Update both item and parent statuses, persist linked inverse changesets and keep source permissions/risk checks active through rollback of rollback. Custom Undo implementations must produce fresh inverse payloads without exposing credentials.
+
+The integrated queue console uses `internal/task` and `internal/feature/monitor`. Enforce the configured queue whitelist and Redis namespace on every read and mutation. Preview and audit controls without exposing internal export payloads or changing their original identity. Keep durable completion checks when retrying or deleting queue records. Cancellation is best effort; queue controls cannot roll back committed business work.
+
+MCP OAuth in `internal/oauth` uses an explicitly configured canonical `mcp.oauth_issuer`, PKCE S256, public-client registration and logged-in consent. An empty issuer disables OAuth while PATs remain supported. Keep redirect/resource validation, refresh rotation, grant revocation and live permission resolution intact. A read-only grant must remain read-only through generic tool wrappers and confirmations. Resources in `internal/adapter/mcpx/resources.go` must authenticate and filter every listing/read, including on a long-lived session; a previously visible URI is not proof of current access.
+
+For frontend copy, use `t` from `@/i18n` and add English values to the relevant catalogue under `web/src/i18n/messages`. Keep protocol strings, permission checks, stored values and user-entered content out of translation. Umi supplies the Chinese/English locale picker and reloads the document on a switch; do not add a second locale store. Use templates for interpolated UI messages and `localizeMessage` only for known server/product messages. Run `npm --prefix web run i18n:check` alongside tests and type checking.
+
 ## Validation
 
 ```sh
 make test
 make test-web
 make lint
+npm --prefix web run i18n:check
 make build
 ```
 
-Integration tests require disposable databases; some tests truncate tables. Never point them at development data that matters or production. CI creates isolated databases and runs all suites. To run the plan/rollback suite locally:
+Integration tests require disposable databases; some tests truncate tables. Never point them at development data that matters or production. CI creates isolated databases and runs all suites. To run plans, cross-person approvals and selective rollback locally, create a disposable database and provide PostgreSQL plus Redis:
 
 ```sh
-INTENT_ADMIN_TEST_DSN='host=127.0.0.1 port=5432 user=postgres password=test-only dbname=intent_plan_integration sslmode=disable' \
-  go test ./internal/plan -v -count=1
+export INTENT_ADMIN_TEST_DSN='host=127.0.0.1 port=5432 user=postgres password=test-only dbname=intent_plan_integration sslmode=disable'
+export INTENT_ADMIN_REDIS_ADDR='127.0.0.1:6379'
+go test ./internal/plan ./internal/changeset -v -count=1
+
+INTENT_ADMIN_OAUTH_TEST_DSN="$INTENT_ADMIN_TEST_DSN" \
+  go test ./internal/oauth -v -count=1
+INTENT_ADMIN_NOTIFICATION_DSN="$INTENT_ADMIN_TEST_DSN" \
+  go test ./internal/notification -v -count=1
 ```
 
-Authentication, system policies, configuration/files and queues have separate opt-in integration flags documented in their test files and the CI workflow. Test permission failures, risk limits, before/after conflicts, transaction rollback and resource ownership when changing those behaviors. New low-impact presentation changes do not need tests that merely repeat the implementation.
+The plan, changeset and OAuth suites create isolated schemas. The import suite creates and drops its own database and requires database-creation rights; its configured database name must end in `_integration`. The notification suite requires an `_integration` database and removes its own fixture rows. Additional opt-in suites use the following flags with the disposable database and Redis configuration from `configs/config.example.yaml` or environment variables:
+
+| Suite | Command and required flag |
+| --- | --- |
+| Authentication and HTTP | `INTENT_ADMIN_INTEGRATION=1 go test ./internal/bootstrap -v -count=1` |
+| System permissions | `INTENT_ADMIN_SYSTEM_INTEGRATION=1 go test ./internal/feature/system -v -count=1` |
+| Model/storage configuration and files | `INTENT_ADMIN_RESOURCE_INTEGRATION=1 go test ./internal/feature/resources -v -count=1` |
+| Create-only XLSX import | `INTENT_ADMIN_IMPORT_INTEGRATION=1 go test ./internal/feature/importer -v -count=1` |
+| Queue controls, scheduler and async exports | `INTENT_ADMIN_TASK_INTEGRATION=1 go test ./internal/task -v -count=1` |
+
+Set `INTENT_ADMIN_DB_NAME`, `INTENT_ADMIN_DB_PASSWORD` and, when needed, `INTENT_ADMIN_DB_PORT` for those database-backed suites. The full commands and isolated database names are in [the CI workflow](.github/workflows/ci.yml). Real S3 tests additionally accept `INTENT_ADMIN_MINIO_TEST_ENDPOINT`, `INTENT_ADMIN_MINIO_TEST_PUBLIC_ENDPOINT`, `INTENT_ADMIN_MINIO_TEST_ACCESS_KEY` and `INTENT_ADMIN_MINIO_TEST_SECRET_KEY`; use a disposable private MinIO bucket environment.
+
+Test permission failures, risk limits, before/after conflicts, transaction rollback and resource ownership when changing those behaviors. Extension tests also cover partial rollback and inverse credential compensation, stale approval/import confirmations, OAuth scope and refresh-token boundaries, resource visibility after revocation, and queue namespace/completion protections. New low-impact presentation changes do not need tests that merely repeat the implementation.
 
 ## Pull requests
 
-Use a feature branch and a Conventional Commit title such as `feat: add notice expiry` or `fix: reject stale rollback`. Include the problem, resulting behavior, validation and migration instructions. Add backward-compatible migrations; do not rewrite an already released migration. The schema has the 21 planned system tables, the demonstration table and a durable task-outbox infrastructure table. Keep secrets and generated build output out of Git. Use English code comments and Chinese product/error text. For breaking changes, update the changelog with the migration path.
+Use a feature branch and a Conventional Commit title such as `feat: add notice expiry` or `fix: reject stale rollback`. Include the problem, resulting behavior, validation and migration instructions. Add backward-compatible migrations; do not rewrite an already released migration. The current versioned migrations define 29 application tables, excluding Goose metadata, including approvals, OAuth state, private notifications and the durable task outbox. Keep secrets and generated build output out of Git. Use English code comments and Chinese source product/error text with English catalogue entries for translated UI messages. For breaking changes, update the changelog with the migration path.
 
 Report security vulnerabilities privately through the process in [SECURITY.md](SECURITY.md).
