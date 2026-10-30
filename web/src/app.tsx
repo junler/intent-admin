@@ -163,15 +163,15 @@ function HeaderSearch() {
           placement="bottomRight"
           content={
             <div className="intent-mobile-search-panel">
-              <Omnibox />
+              <Omnibox compact />
             </div>
           }
         >
-          <Tooltip title={t('搜索与 AI 助手')}>
+          <Tooltip title={t('Intent 助手')}>
             <Button
               type="text"
               icon={<SearchOutlined />}
-              aria-label={t('搜索与 AI 助手')}
+              aria-label={t('Intent 助手')}
             />
           </Tooltip>
         </Popover>

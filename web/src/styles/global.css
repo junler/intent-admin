@@ -107,29 +107,193 @@ body {
 .ant-card .ant-card-head {
   border-bottom-color: #f0f3f8;
 }
+/* The Omnibox is a command surface, not a search field: a quiet pill at rest
+ * that resolves into a focused command bar, carrying a chip for whatever the
+ * current page has checked. The focus ring is the one gradient in the app. */
 .intent-header-search {
   flex: 1;
   min-width: 160px;
-  max-width: 560px;
+  display: flex;
+  justify-content: center;
   padding-inline: 18px 28px;
 }
-.intent-header-search .ant-input-group-wrapper {
-  width: 100%;
-}
-.intent-header-search .ant-input-affix-wrapper,
-.intent-header-search .ant-input-search-button {
+.intent-omnibox {
+  --omnibox-edge: #e4eaf3;
+  --omnibox-ink: #7b8798;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(100%, 520px);
+  height: 38px;
+  padding-inline: 13px 6px;
+  border: 1px solid var(--omnibox-edge);
+  border-radius: 999px;
   background: #f6f8fc;
-  border-color: #edf0f5;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.22s ease;
 }
-.intent-header-search .ant-input {
+.intent-omnibox:hover:not(.intent-omnibox-disabled) {
+  background: #fff;
+  border-color: #d2dcec;
+}
+.intent-omnibox-focused {
+  background: #fff;
+  border-color: transparent;
+  box-shadow:
+    0 0 0 3px rgb(79 70 229 / 10%),
+    0 8px 20px -10px rgb(37 99 235 / 40%);
+}
+/* Gradient hairline, drawn as a masked ring so it replaces the border. */
+.intent-omnibox::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(100deg, #6366f1, #2563eb 55%, #0ea5e9);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+}
+.intent-omnibox-focused::after {
+  opacity: 1;
+}
+.intent-omnibox-mark {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  fill: #6366f1;
+  opacity: 0.75;
+  transition: opacity 0.2s ease;
+}
+.intent-omnibox-focused .intent-omnibox-mark {
+  opacity: 1;
+}
+.intent-omnibox .ant-input {
   background: transparent;
   font-size: 13px;
+  padding: 0;
+}
+.intent-omnibox .ant-input-affix-wrapper,
+.intent-omnibox .ant-input-outlined {
+  padding: 0;
+}
+.intent-omnibox-disabled,
+.intent-omnibox-disabled:hover {
+  background: #f4f6fa;
+  cursor: not-allowed;
+}
+.intent-omnibox-disabled .intent-omnibox-mark {
+  fill: #b6bfcd;
+}
+/* The chip names what the assistant will act on. It exists only when rows are
+ * checked, so its presence is itself the signal. */
+.intent-omnibox-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 190px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.intent-omnibox-chip-scope {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #7c86d6;
+}
+.intent-omnibox-chip-scope::after {
+  content: "·";
+  margin-inline-start: 5px;
+}
+.intent-omnibox-chip-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.intent-omnibox-kbd {
+  flex: none;
+  padding: 3px 7px;
+  border: 1px solid #e2e8f2;
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--omnibox-ink);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+}
+.intent-omnibox-send {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  animation: intent-omnibox-send-in 0.18s ease;
+}
+.intent-omnibox-send:hover {
+  background: #1d4ed8;
+}
+.intent-omnibox-send:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+@keyframes intent-omnibox-send-in {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+.intent-omnibox-compact {
+  width: 100%;
+}
+.intent-omnibox-hint-rows {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgb(255 255 255 / 18%);
+  opacity: 0.85;
+  font-size: 12px;
 }
 .intent-mobile-search {
   display: none;
 }
 .intent-mobile-search-panel {
   width: min(400px, calc(100vw - 48px));
+}
+@media (prefers-reduced-motion: reduce) {
+  .intent-omnibox,
+  .intent-omnibox::after,
+  .intent-omnibox-mark,
+  .intent-omnibox-send {
+    transition: none;
+    animation: none;
+  }
 }
 .intent-avatar-button.ant-btn {
   height: 42px;
