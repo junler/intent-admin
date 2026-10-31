@@ -205,15 +205,12 @@ func (t *Tools) Build() ([]tool.BaseTool, error) {
 	if err != nil {
 		return nil, err
 	}
-	know, err := utils.InferTool("get_knowledge", "查询系统字典、实体关系和硬约束。字段含义不确定时先查知识库。", func(ctx context.Context, in topicInput) (out any, err error) {
+	know, err := utils.InferTool("get_knowledge", "查询系统字典、实体关系和业务规则，topic 使用 overview、rules、真实表名或字典类型。表单字段结构必须使用 list_forms、describe_form，不要用表单标题猜知识主题。", func(ctx context.Context, in topicInput) (out any, err error) {
 		if err = t.before(ctx, "get_knowledge"); err != nil {
 			return nil, err
 		}
 		defer func() { t.after("get_knowledge", out, err) }()
-		if t.Knowledge == nil {
-			return nil, errcode.Internalf("知识库不可用")
-		}
-		return t.Knowledge.Get(ctx, in.Topic)
+		return t.getKnowledge(ctx, in.Topic)
 	})
 	if err != nil {
 		return nil, err
@@ -352,13 +349,7 @@ func Route(e *capability.Entry) string {
 		return ""
 	}
 	path := e.HTTP.Path
-	// These three pages deliberately do not live at their capability's path.
-	if strings.HasPrefix(path, "/system/changeset") {
-		return "/changesets"
-	}
-	if strings.HasPrefix(path, "/system/audit") {
-		return "/audit"
-	}
+	// The dashboard endpoint resolves to the home page.
 	if strings.HasPrefix(path, "/dashboard/") {
 		return "/"
 	}

@@ -28,12 +28,19 @@ import (
 )
 
 type Service struct {
-	db            *gorm.DB
-	Invalidate    func(context.Context, string, string) error
-	AuthorizeUndo func(context.Context, undo.Payload) error
+	db             *gorm.DB
+	withoutHistory bool
+	Invalidate     func(context.Context, string, string) error
+	AuthorizeUndo  func(context.Context, undo.Payload) error
 }
 
 func New(db *gorm.DB) *Service { return &Service{db: db} }
+
+// NewWithoutHistory retains transaction locking and ordinary operation logging,
+// but does not create change snapshots or rollback groups.
+func NewWithoutHistory(db *gorm.DB) *Service {
+	return &Service{db: db, withoutHistory: true}
+}
 
 type Set struct {
 	ID                 string          `gorm:"column:changeset_id;primaryKey" json:"changesetId"`
@@ -113,6 +120,9 @@ func actor(ctx context.Context) (*capability.Actor, error) {
 
 // Begin creates a group that subsequent invocations can join via Actor.ChangesetID.
 func (s *Service) Begin(ctx context.Context, a *capability.Actor, summary string) (string, error) {
+	if s.withoutHistory {
+		return "", nil
+	}
 	if runes := []rune(summary); len(runes) > 500 {
 		summary = string(runes[:500])
 	}
@@ -124,6 +134,9 @@ func (s *Service) Begin(ctx context.Context, a *capability.Actor, summary string
 // Persist is the capability executor hook. All snapshots and compensation data
 // are written through DBFrom, atomically with the corresponding business rows.
 func (s *Service) Persist(ctx context.Context, e *capability.Entry, a *capability.Actor, records []capability.RecordedItem, override json.RawMessage) (string, error) {
+	if s.withoutHistory {
+		return "", nil
+	}
 	db := dbx.DBFrom(ctx, s.db)
 	id := a.ChangesetID
 	if id == "" {
@@ -564,6 +577,9 @@ func (s *Service) Undo(ctx context.Context, payload json.RawMessage) error {
 	}
 }
 func (s *Service) Finish(ctx context.Context, id, status string) error {
+	if s.withoutHistory {
+		return nil
+	}
 	return dbx.DBFrom(ctx, s.db).Model(&Set{}).Where("changeset_id=?", id).Update("status", status).Error
 }
 func (s *Service) Register() {

@@ -115,7 +115,8 @@ export function AiPanel() {
   const sequence = useRef(0);
   const loadSequence = useRef(0);
   const handled = useRef(0);
-  const bottom = useRef<HTMLDivElement>(null);
+  const messageViewport = useRef<HTMLDivElement>(null);
+  const followOutput = useRef(true);
   const composer = useRef<React.ComponentRef<typeof Input.TextArea>>(null);
   const allowed = usePerm('ai:agent:use');
   const [notice, setNotice] = useState(() => !noticeRead());
@@ -182,12 +183,20 @@ export function AiPanel() {
   }, [open, allowed, refreshSessions]);
   const lastMessage = messages.at(-1);
   const scrollAnchor = `${lastMessage?.id}:${lastMessage?.content}:${lastMessage?.plan?.status}:${tool}`;
+  const scrollToLatest = useCallback(() => {
+    const viewport = messageViewport.current;
+    if (followOutput.current && viewport) {
+      // Stream updates must not leave a smooth animation fighting manual scrolling.
+      viewport.scrollTop = viewport.scrollHeight;
+    }
+  }, []);
   useEffect(() => {
-    if (scrollAnchor) bottom.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [scrollAnchor]);
+    if (open && !restoring) scrollToLatest();
+  }, [open, restoring, scrollAnchor, scrollToLatest]);
   useEffect(() => {
-    if (!open || !allowed) stopActive();
-  }, [open, allowed, stopActive]);
+    // Hiding the drawer leaves its stream running; revoked access still stops it.
+    if (!allowed) stopActive();
+  }, [allowed, stopActive]);
   useEffect(
     () => () => {
       loadSequence.current++;
@@ -198,6 +207,7 @@ export function AiPanel() {
 
   const newConversation = useCallback(() => {
     stopActive();
+    followOutput.current = true;
     loadSequence.current++;
     setRestoring(false);
     setSessionId(undefined);
@@ -207,6 +217,7 @@ export function AiPanel() {
   const loadSession = useCallback(
     async (id: string) => {
       stopActive();
+      followOutput.current = true;
       setFormFocus(undefined);
       const load = ++loadSequence.current;
       setRestoring(true);
@@ -282,6 +293,7 @@ export function AiPanel() {
         sessionId,
       };
       active.current = run;
+      followOutput.current = true;
       const focusedForm = formFocus;
       setFormFocus(undefined);
       setText('');
@@ -313,7 +325,12 @@ export function AiPanel() {
           }),
       });
       let pendingForm:
-        | { owner: number; values: unknown; target: DraftTarget }
+        | {
+            owner: number;
+            values: unknown;
+            defaults: unknown;
+            target: DraftTarget;
+          }
         | undefined;
       function onEvent(event: StreamEvent) {
         if (!current()) return;
@@ -348,21 +365,31 @@ export function AiPanel() {
               ? event.permission
               : 'system:user:add';
           const mode =
-            event.mode === 'update' || event.mode === 'action'
+            event.mode === 'update' ||
+            event.mode === 'action' ||
+            event.mode === 'query'
               ? event.mode
               : 'create';
           if (!identity || !hasPermission(identity.permissions, permission)) {
             setError(t('表单不存在或无权填写'));
             return;
           }
-          const url = navigation.request({ route });
-          if (!url) {
+          const formId =
+            typeof event.formId === 'string' ? event.formId : undefined;
+          if (formId) {
+            const currentForm = useUiForms.getState().forms[formId];
+            if (!currentForm || currentForm.route !== route) {
+              setError(t('表单未打开或当前账号无权填写'));
+              return;
+            }
+          } else if (!navigation.request({ route })) {
             setError(t('页面不存在或无权访问'));
             return;
           }
           pendingForm = {
             owner: identity.user.userId,
             values: event.values,
+            defaults: event.defaults,
             target: {
               route,
               mode,
@@ -376,7 +403,7 @@ export function AiPanel() {
           update((item) => ({
             ...item,
             navigated: true,
-            content: t('已打开并填写表单，请检查后确认提交；尚未保存。'),
+            content: t('已填充表单，请检查后确认提交；尚未保存。'),
           }));
         } else if (event.type === 'navigate') {
           const url = navigation.request({
@@ -417,7 +444,12 @@ export function AiPanel() {
             }
             useFormDraftStore
               .getState()
-              .stage(pendingForm.owner, pendingForm.values, pendingForm.target);
+              .stage(
+                pendingForm.owner,
+                pendingForm.values,
+                pendingForm.target,
+                pendingForm.defaults,
+              );
             pendingForm = undefined;
           }
           navigation.complete();
@@ -469,7 +501,7 @@ export function AiPanel() {
     if (incoming.draft !== undefined) {
       setText(incoming.draft);
       setFormFocus(incoming.form);
-      composer.current?.focus();
+      composer.current?.focus({ preventScroll: true });
     } else if (incoming.sessionId) void loadSession(incoming.sessionId);
     else if (incoming.text) void send(incoming.text);
     else newConversation();
@@ -483,15 +515,15 @@ export function AiPanel() {
       size="min(640px, 100vw)"
       mask={{ closable: true }}
       open={open}
+      destroyOnHidden={false}
       aria-label={t('AI 会话')}
       afterOpenChange={(visible) => {
-        if (visible && allowed) composer.current?.focus();
+        if (visible && allowed) {
+          composer.current?.focus({ preventScroll: true });
+          scrollToLatest();
+        }
       }}
-      onClose={() => {
-        stopActive();
-        loadSequence.current++;
-        close();
-      }}
+      onClose={close}
       title={
         <div className="intent-ai-drawer-title">
           {allowed && (
@@ -614,7 +646,24 @@ export function AiPanel() {
           {restoring ? (
             <Loading panel tip={t('正在恢复会话与计划')} />
           ) : (
-            <div className="intent-ai-messages space-y-5">
+            <div
+              ref={messageViewport}
+              className="intent-ai-messages space-y-5"
+              onWheel={() => {
+                followOutput.current = false;
+              }}
+              onTouchMove={() => {
+                followOutput.current = false;
+              }}
+              onScroll={(event) => {
+                const viewport = event.currentTarget;
+                followOutput.current =
+                  viewport.scrollHeight -
+                    viewport.scrollTop -
+                    viewport.clientHeight <=
+                  2;
+              }}
+            >
               {messages
                 .filter(
                   (item) =>
@@ -641,10 +690,7 @@ export function AiPanel() {
                       <PlanCard
                         key={item.plan.id}
                         initialPlan={item.plan}
-                        onNavigate={() => {
-                          stopActive();
-                          close();
-                        }}
+                        onNavigate={close}
                         onUpdated={(plan) =>
                           setMessages((old) =>
                             old.map((entry) =>
@@ -675,10 +721,7 @@ export function AiPanel() {
                     {!item.navigated && !!item.evidence?.length && (
                       <PageSuggestions
                         evidence={item.evidence}
-                        onNavigate={() => {
-                          stopActive();
-                          close();
-                        }}
+                        onNavigate={close}
                       />
                     )}
                   </section>
@@ -691,7 +734,6 @@ export function AiPanel() {
                   </Typography.Text>
                 </Space>
               )}
-              <div ref={bottom} />
             </div>
           )}
           {error && (
@@ -710,7 +752,7 @@ export function AiPanel() {
               onChange={(event) => setText(event.target.value)}
               onFocus={() => setComposerFocus(true)}
               onBlur={() => setComposerFocus(false)}
-              placeholder={t('描述你的意图，例如：停用选中的用户')}
+              placeholder={t('描述你的目标，例如：停用选中的用户')}
               autoSize={{ minRows: 2, maxRows: 6 }}
               onPressEnter={(event) => {
                 if (!event.shiftKey && !event.nativeEvent.isComposing) {

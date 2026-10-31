@@ -1,3 +1,4 @@
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 import {
   DeleteOutlined,
   DownloadOutlined,
@@ -90,6 +91,7 @@ export default function DemoItemPage() {
     }
   }, [filters, page]);
 
+  usePageRefresh(() => { setSelected([]); return load(); });
   useEffect(() => {
     void load();
   }, [load]);

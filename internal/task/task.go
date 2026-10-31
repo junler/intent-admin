@@ -80,6 +80,7 @@ type jobPayload struct {
 	Manual bool            `json:"manual"`
 }
 type Runtime struct {
+	ActorLoader      func(context.Context, int64) (*capability.Actor, error)
 	DB               *gorm.DB
 	Cache            *cache.Cache
 	Cfg              *config.Config
@@ -245,6 +246,11 @@ func (r *Runtime) ValidateJob(j *Job) error {
 		}
 		if j.InvokeTarget == AnnouncementHandler {
 			if _, err := announcementParams(json.RawMessage(j.JobParams)); err != nil {
+				return err
+			}
+		}
+		if j.InvokeTarget == WorkflowHandler {
+			if _, err := workflowParams(j.JobParams); err != nil {
 				return err
 			}
 		}

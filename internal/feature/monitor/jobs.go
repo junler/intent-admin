@@ -48,8 +48,8 @@ type JobInput struct {
 	JobID          int64   `json:"jobId" uri:"jobId"`
 	JobName        *string `json:"jobName"`
 	JobGroup       *string `json:"jobGroup" jsonschema:"执行队列，只能为 DEFAULT、critical、low；普通任务及公开通知公告任务使用 DEFAULT，未指定时默认 DEFAULT。公共不是队列名，不要使用 PUBLIC 或按公告类型猜测分组。历史 SYSTEM 值仅兼容为 DEFAULT"`
-	InvokeTarget   *string `json:"invokeTarget" jsonschema:"必须先查询 monitor.job.handlers 选择已注册处理器。个人系统通知使用 system:notifyUser，公开通知公告使用 system:createNotice"`
-	JobParams      *string `json:"jobParams" jsonschema:"处理器参数的 JSON 字符串。system:notifyUser 使用 title、content，接收人绑定为创建者；system:createNotice 使用 noticeTitle、noticeContent、noticeType（1通知或2公告）、status（0正常或1停用）"`
+	InvokeTarget   *string `json:"invokeTarget" jsonschema:"必须先查询 monitor.job.handlers 选择已注册处理器。动态查询、多步业务操作使用 system:workflow（复用 automation.flow.run）；固定个人通知使用 system:notifyUser，公开通知公告使用 system:createNotice"`
+	JobParams      *string `json:"jobParams" jsonschema:"处理器参数的 JSON 字符串。system:workflow 使用 flow（包含 steps、可选 timeZone）；身份权限由服务端绑定。system:notifyUser 使用 title、content，接收人绑定为创建者；system:createNotice 使用 noticeTitle、noticeContent、noticeType（1通知或2公告）、status（0正常或1停用）"`
 	CronExpression *string `json:"cronExpression" jsonschema:"标准五字段 cron：分钟 小时 日 月 周。每分钟用 * * * * *，每天九点用 0 9 * * *。不要生成秒、年份或 Quartz 问号；也可用 @every 1m"`
 	MisfirePolicy  *string `json:"misfirePolicy"`
 	Concurrent     *string `json:"concurrent"`

@@ -1,3 +1,4 @@
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 import { t } from '@/i18n';
 import { useEffect, useState } from "react";
 import { Button, Space, Spin } from "antd";
@@ -17,6 +18,7 @@ export default function Server() {
 			setBusy(false);
 		}
 	}
+	usePageRefresh(load);
 	useEffect(() => {
 		void load().catch(() => {});
 	}, []);

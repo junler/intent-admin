@@ -1,6 +1,6 @@
-import { RobotOutlined } from '@ant-design/icons';
+import { CommentOutlined } from '@ant-design/icons';
 import { useLocation } from '@umijs/max';
-import { FloatButton } from 'antd';
+import { Button } from 'antd';
 import { createPortal } from 'react-dom';
 import { usePerm } from '@/hooks/usePerm';
 import { t } from '@/i18n';
@@ -16,11 +16,13 @@ export function AiFloatingButton() {
   const menus = useUserStore((state) => state.menus);
   if (!allowed || open || typeof document === 'undefined') return null;
   return createPortal(
-    <FloatButton
+    <Button
       className="intent-ai-floating-entry"
-      type="primary"
-      icon={<RobotOutlined />}
-      tooltip={{ title: t('AI 助手'), placement: 'left', zIndex: 20001 }}
+      icon={
+        <span className="intent-ai-floating-icon">
+          <CommentOutlined />
+        </span>
+      }
       aria-label={t('打开 AI 助手')}
       style={{ zIndex: 20000 }}
       onClick={() => {
@@ -38,7 +40,9 @@ export function AiFloatingButton() {
         }
         panel.compose(context.prompt, context.form, context.layer);
       }}
-    />,
+    >
+      {t('AI 助手')}
+    </Button>,
     document.body,
   );
 }

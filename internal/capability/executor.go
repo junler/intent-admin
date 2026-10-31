@@ -74,6 +74,9 @@ var hooks Hooks
 // Install wires the executor's dependencies. Called once from bootstrap.
 func Install(h Hooks) { hooks = h }
 
+// RecordsHistory reports whether this runtime persists change snapshots.
+func RecordsHistory() bool { return hooks.PersistChanges != nil }
+
 // RunPreview runs a capability's dry run with JSON arguments.
 //
 // Preview itself is always treated as low risk: it is read-only and the whole

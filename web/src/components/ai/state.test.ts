@@ -119,13 +119,13 @@ describe('evidence links', () => {
     expect(evidenceURL({ route: 'https://evil.invalid' })).toBeUndefined();
     expect(evidenceURL({ route: '//evil.invalid' })).toBeUndefined();
   });
-  it('uses the bundled history route for changeset capabilities', () => {
+  it('does not suggest a retired rollback page', () => {
     expect(
       managementURL({
         ...plan.steps[1],
         capability: 'system.changeset.rollback',
       }),
-    ).toBe('/changesets');
+    ).toBeUndefined();
   });
 });
 

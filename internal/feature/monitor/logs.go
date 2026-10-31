@@ -75,7 +75,7 @@ func (s *Service) logQuery(ctx context.Context, sp logSpec, in LogListIn) (*gorm
 		q = q.Where(sp.date+" <= ?", t)
 	}
 	switch sp.name {
-	case "operlog", "auditTrail":
+	case "operlog":
 		if in.RolledBack != nil {
 			predicate := "EXISTS (SELECT 1 FROM sys_changeset c WHERE c.changeset_id=sys_oper_log.changeset_id AND c.status='rolled_back')"
 			if !*in.RolledBack {
@@ -121,17 +121,12 @@ func (s *Service) logQuery(ctx context.Context, sp logSpec, in LogListIn) (*gorm
 	return q, nil
 }
 func (s *Service) registerLogs() {
-	specs := []logSpec{{"operlog", "sys_oper_log", "oper_id", "oper_time", "操作日志", "monitor:operlog", []capability.ExportColumn{{Field: "operId", Label: "编号"}, {Field: "operName", Label: "操作人"}, {Field: "capability", Label: "功能"}, {Field: "actorType", Label: "主体", Dict: "sys_actor_type"}, {Field: "source", Label: "来源", Dict: "sys_call_source"}, {Field: "risk", Label: "风险", Dict: "sys_risk_level"}, {Field: "intent", Label: "意图"}, {Field: "status", Label: "状态"}, {Field: "operTime", Label: "时间", Format: capability.FormatDateTime}}}, {"loginlog", "sys_login_log", "info_id", "login_time", "登录日志", "monitor:loginlog", []capability.ExportColumn{{Field: "infoId", Label: "编号"}, {Field: "userName", Label: "账号"}, {Field: "ipaddr", Label: "IP"}, {Field: "browser", Label: "浏览器"}, {Field: "status", Label: "状态"}, {Field: "msg", Label: "提示"}, {Field: "loginTime", Label: "时间", Format: capability.FormatDateTime}}}, {"jobLog", "sys_job_log", "job_log_id", "create_time", "任务日志", "monitor:job", []capability.ExportColumn{{Field: "jobLogId", Label: "编号"}, {Field: "jobName", Label: "任务"}, {Field: "invokeTarget", Label: "处理器"}, {Field: "status", Label: "状态"}, {Field: "jobMessage", Label: "消息"}, {Field: "costTime", Label: "耗时毫秒"}, {Field: "createTime", Label: "时间", Format: capability.FormatDateTime}}}, {"auditTrail", "sys_oper_log", "oper_id", "oper_time", "行为溯源", "monitor:operlog", nil}}
+	specs := []logSpec{{"operlog", "sys_oper_log", "oper_id", "oper_time", "操作日志", "monitor:operlog", []capability.ExportColumn{{Field: "operId", Label: "编号"}, {Field: "operName", Label: "操作人"}, {Field: "capability", Label: "功能"}, {Field: "actorType", Label: "主体", Dict: "sys_actor_type"}, {Field: "source", Label: "来源", Dict: "sys_call_source"}, {Field: "risk", Label: "风险", Dict: "sys_risk_level"}, {Field: "intent", Label: "意图"}, {Field: "status", Label: "状态"}, {Field: "operTime", Label: "时间", Format: capability.FormatDateTime}}}, {"loginlog", "sys_login_log", "info_id", "login_time", "登录日志", "monitor:loginlog", []capability.ExportColumn{{Field: "infoId", Label: "编号"}, {Field: "userName", Label: "账号"}, {Field: "ipaddr", Label: "IP"}, {Field: "browser", Label: "浏览器"}, {Field: "status", Label: "状态"}, {Field: "msg", Label: "提示"}, {Field: "loginTime", Label: "时间", Format: capability.FormatDateTime}}}, {"jobLog", "sys_job_log", "job_log_id", "create_time", "任务日志", "monitor:job", []capability.ExportColumn{{Field: "jobLogId", Label: "编号"}, {Field: "jobName", Label: "任务"}, {Field: "invokeTarget", Label: "处理器"}, {Field: "status", Label: "状态"}, {Field: "jobMessage", Label: "消息"}, {Field: "costTime", Label: "耗时毫秒"}, {Field: "createTime", Label: "时间", Format: capability.FormatDateTime}}}}
 	for _, sp := range specs {
 		sp := sp
 		name := "monitor." + sp.name
 		path := "/monitor/" + sp.name
 		export := &capability.ExportSpec{SheetName: sp.title, FileName: sp.title + "_{date}", Perm: sp.perm + ":export", Columns: sp.cols}
-		if sp.name == "auditTrail" {
-			name = "system.auditTrail"
-			path = "/system/audit"
-			export = nil
-		}
 		capability.Register(capability.Capability[LogListIn, Page[map[string]any]]{Meta: capability.Meta{Name: name + ".list", Summary: "查询" + sp.title, Perm: sp.perm + ":list", Risk: capability.RiskLow, HTTP: &capability.HTTPBinding{Method: "GET", Path: path + "/list"}, AIEnabled: true, MCPEnabled: true, Export: export}, Fn: func(ctx context.Context, in LogListIn) (Page[map[string]any], error) {
 			q, err := s.logQuery(ctx, sp, in)
 			if err != nil {
@@ -154,9 +149,6 @@ func (s *Service) registerLogs() {
 			}
 			return Page[map[string]any]{rows, total, in.PageNum, in.PageSize}, nil
 		}})
-		if sp.name == "auditTrail" {
-			continue
-		}
 		capability.Register(capability.Capability[LogIDs, capability.Empty]{Meta: capability.Meta{Name: name + ".remove", Summary: "删除" + sp.title, Perm: sp.perm + ":remove", Risk: capability.RiskHigh, Mutating: true, HTTP: &capability.HTTPBinding{Method: "DELETE", Path: path + "/:ids"}, AIEnabled: true, MCPEnabled: true, LogTitle: sp.title, BizType: capability.BizDelete}, Fn: func(ctx context.Context, in LogIDs) (capability.Empty, error) {
 			q := dbx.DBFrom(ctx, s.db).Table(sp.table)
 			if err := q.Where(sp.id+" IN ?", in.IDs).Delete(nil).Error; err != nil {

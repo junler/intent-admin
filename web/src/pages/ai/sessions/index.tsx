@@ -1,3 +1,4 @@
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 import { DetailDialog } from '@/components/common/DetailDialog';
 import {
   type ActionType,
@@ -5,16 +6,7 @@ import {
   ProTable,
 } from '@ant-design/pro-components';
 import { history, useLocation } from '@umijs/max';
-import {
-  App,
-  Button,
-  Empty,
-  Input,
-  Modal,
-  Popconfirm,
-  Space,
-  Tabs,
-} from 'antd';
+import { App, Button, Empty, Input, Modal, Space, Tabs } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { RiskColor, RiskLabel } from '@/api/types';
 import { AiFormHeading } from '@/components/ai/AiFormContext';
@@ -38,6 +30,7 @@ export default function SessionsPage() {
   const location = useLocation();
   const sessionsRef = useRef<ActionType | undefined>(undefined);
   const plansRef = useRef<ActionType | undefined>(undefined);
+  usePageRefresh(() => Promise.all([sessionsRef.current?.reload(), plansRef.current?.reload()]));
   const [plan, setPlan] = useState<Plan>();
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [renaming, setRenaming] = useState<Session>();
@@ -90,7 +83,7 @@ export default function SessionsPage() {
     <PageContainer
       title={t('AI 会话与计划')}
       content={t(
-        '会话保存在 Redis；计划与实际变更独立保留，过期会话不会抹去审批和变更记录。',
+        '会话保存在 Redis；操作计划独立保留，AI 发起的操作由本人确认后执行。',
       )}
     >
       <Tabs
@@ -139,17 +132,16 @@ export default function SessionsPage() {
                         >
                           {t('重命名')}
                         </Button>
-                        <Popconfirm
-                          title={t('确认删除会话？计划与变更记录会保留。')}
-                          onConfirm={async () => {
+                        <Button
+                          type="link"
+                          danger
+                          onClick={async () => {
                             await api.del(`/ai/sessions/${row.id}`);
                             sessionsRef.current?.reload();
                           }}
                         >
-                          <Button type="link" danger>
-                            {t('删除')}
-                          </Button>
-                        </Popconfirm>
+                          {t('删除')}
+                        </Button>
                       </Space>
                     ),
                   },
@@ -217,18 +209,6 @@ export default function SessionsPage() {
                         <Button type="link" onClick={() => viewPlan(row.id)}>
                           {t('预览 / 确认')}
                         </Button>
-                        {row.changesetId && (
-                          <Button
-                            type="link"
-                            onClick={() =>
-                              history.push(
-                                `/changesets?id=${encodeURIComponent(row.changesetId ?? '')}`,
-                              )
-                            }
-                          >
-                            {t('变更与回滚')}
-                          </Button>
-                        )}
                       </Space>
                     ),
                   },

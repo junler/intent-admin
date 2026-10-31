@@ -19,7 +19,7 @@ func (s *Service) CurrentAIActor(ctx context.Context, userID int64) (*capability
 	identity := service.NewIdentity(dbx.DBFrom(ctx, s.db))
 	u, err := identity.User(ctx, userID)
 	if errors.Is(err, gorm.ErrRecordNotFound) || (err == nil && u.Status != model.StatusNormal) {
-		return nil, errcode.Forbiddenf("审批参与人已停用或不存在")
+		return nil, errcode.Forbiddenf("用户已停用或不存在")
 	}
 	if err != nil {
 		return nil, err

@@ -39,7 +39,7 @@ type ConfirmInput struct {
 }
 type Result struct {
 	Affected    int    `json:"affected"`
-	ChangesetID string `json:"changesetId"`
+	ChangesetID string `json:"changesetId,omitempty"`
 }
 type Report struct {
 	ConfirmationID string              `json:"confirmationId"`

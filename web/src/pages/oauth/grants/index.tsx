@@ -1,3 +1,4 @@
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 import { DetailDialog } from '@/components/common/DetailDialog';
 import { DeleteOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import {
@@ -44,6 +45,7 @@ function status(grant: Grant) {
 export default function OAuthGrantsPage() {
   const active = usePageActive();
   const action = useRef<ActionType>(undefined);
+  usePageRefresh(() => action.current?.reload());
   const { message } = App.useApp();
   const [detail, setDetail] = useState<Grant>();
   const [revoking, setRevoking] = useState<Grant>();

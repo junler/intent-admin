@@ -1,3 +1,4 @@
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 import { DetailDialog } from '@/components/common/DetailDialog';
 import {
   type ActionType,
@@ -79,6 +80,7 @@ function pretty(value: unknown) {
 export default function CapabilitiesPage() {
   const active = usePageActive();
   const actionRef = useRef<ActionType | undefined>(undefined);
+  usePageRefresh(() => actionRef.current?.reload());
   const [keyword, setKeyword] = useState('');
   const [selected, setSelected] = useState<CapabilityRow>();
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
@@ -165,11 +167,6 @@ export default function CapabilitiesPage() {
           <Tag color={row.mutating ? 'orange' : 'green'}>
             {row.mutating ? t('修改') : t('只读')}
           </Tag>
-          {row.mutating && (
-            <Tag color={row.reversible ? 'green' : 'red'}>
-              {row.reversible ? t('可回滚') : t('不可回滚')}
-            </Tag>
-          )}
         </Space>
       ),
     },
@@ -220,7 +217,11 @@ export default function CapabilitiesPage() {
         columns={columns}
         scroll={{ x: 1450 }}
         search={{ labelWidth: 'auto' }}
-        pagination={{ pageSize: 20, showSizeChanger: true, hideOnSinglePage: true }}
+        pagination={{
+          pageSize: 20,
+          showSizeChanger: true,
+          hideOnSinglePage: true,
+        }}
         toolBarRender={() => [
           <Input.Search
             key="keyword"
@@ -303,15 +304,6 @@ export default function CapabilitiesPage() {
                         t('仅页面')}
                     </Space>
                   ),
-                },
-                {
-                  key: 'undo',
-                  label: t('可逆性'),
-                  children: selected.mutating
-                    ? selected.reversible
-                      ? t('可回滚')
-                      : t('不可回滚')
-                    : t('只读'),
                 },
               ]}
             />

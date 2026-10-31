@@ -3,7 +3,7 @@ import { create } from 'zustand';
 export interface DraftTarget {
   route: string;
   formId?: string;
-  mode: 'create' | 'update' | 'action';
+  mode: 'create' | 'update' | 'query' | 'action';
   path?: string;
   recordId?: string;
   permission?: string;
@@ -15,13 +15,19 @@ interface FormDraft {
   owner: number;
   target: DraftTarget;
   values: Record<string, unknown>;
+  defaults: Record<string, unknown>;
   expiresAt: number;
 }
 
 /** One-use browser memory only. Draft values never enter URLs or browser storage. */
 export const useFormDraftStore = create<{
   draft?: FormDraft;
-  stage: (owner: number, values: unknown, target?: DraftTarget) => void;
+  stage: (
+    owner: number,
+    values: unknown,
+    target?: DraftTarget,
+    defaults?: unknown,
+  ) => void;
   take: (owner: number, route?: string) => FormDraft | undefined;
   clear: () => void;
 }>((set, get) => ({
@@ -33,6 +39,7 @@ export const useFormDraftStore = create<{
       mode: 'create',
       permission: 'system:user:add',
     },
+    defaults = {},
   ) => {
     if (
       !owner ||
@@ -52,6 +59,17 @@ export const useFormDraftStore = create<{
       owner,
       target,
       values: safe,
+      defaults:
+        defaults &&
+        typeof defaults === 'object' &&
+        !Array.isArray(defaults) &&
+        JSON.stringify(defaults).length <= 16_384
+          ? Object.fromEntries(
+              Object.entries(defaults).filter(([key]) =>
+                /^[A-Za-z][A-Za-z0-9_]*$/.test(key),
+              ),
+            )
+          : {},
       expiresAt: Date.now() + 120_000,
     };
     set({ draft });

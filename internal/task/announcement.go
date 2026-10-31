@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"encoding/json"
+	"github.com/junler/intent-admin/internal/automation"
 	"strings"
 	"unicode/utf8"
 
@@ -43,6 +44,17 @@ func announcementParams(raw json.RawMessage) (AnnouncementParams, error) {
 // AuthorizeJob checks delegated business permissions before a human creates,
 // edits, enables or manually runs a scheduled operation.
 func (r *Runtime) AuthorizeJob(ctx context.Context, j Job) error {
+	if j.InvokeTarget == WorkflowHandler {
+		p, err := workflowParams(j.JobParams)
+		if err != nil {
+			return err
+		}
+		a, ok := capability.ActorFrom(ctx)
+		if !ok || a.ReadOnly || !capability.RiskHigh.AtMost(a.MaxRisk) {
+			return errcode.Forbiddenf("通用定时流程需要 high 风险上限和写入授权")
+		}
+		return automation.Validate(ctx, p.Flow, true)
+	}
 	r.mu.RLock()
 	h := r.handlers[j.InvokeTarget]
 	r.mu.RUnlock()

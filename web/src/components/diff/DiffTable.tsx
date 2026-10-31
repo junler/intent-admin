@@ -188,23 +188,18 @@ function Fields({ fields, entity }: { fields: FieldDiff[]; entity: string }) {
 
 export interface DiffTableProps {
   preview: Preview;
-  historical?: boolean;
   layout?: 'table' | 'cards';
 }
 
 /**
  * DiffTable renders a structured diff.
  *
- * This component is deliberately shared between the page confirmation modal
+ * This component is deliberately shared between the import preview
  * and the AI plan card. "Are you sure?" carries no information; showing which
  * records change, which fields, and from what to what is the difference
  * between a user approving blindly and approving knowingly.
  */
-export function DiffTable({
-  preview,
-  historical = false,
-  layout = 'table',
-}: DiffTableProps) {
+export function DiffTable({ preview, layout = 'table' }: DiffTableProps) {
   const rowIndices = new Map(
     (preview.changes ?? []).map((change, index) => [change, index]),
   );
@@ -265,23 +260,7 @@ export function DiffTable({
             {preview.skipped} {t(' 条')}
           </Tag>
         )}
-        {!historical && !preview.reversible && (
-          <Tag color="red">{t('不可回滚')}</Tag>
-        )}
       </Space>
-
-      {/* An irreversible operation is the one case where emphasis is
-          warranted: there is no undo to fall back on. */}
-      {!historical && !preview.reversible && (
-        <Alert
-          type="error"
-          showIcon
-          message={t('此操作不可回滚')}
-          description={t(
-            '执行后无法通过变更历史撤销，请确认影响范围后再继续。',
-          )}
-        />
-      )}
 
       {preview.warnings?.map((w) => (
         <Alert key={w} type="warning" showIcon message={w} />

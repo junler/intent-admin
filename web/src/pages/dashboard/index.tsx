@@ -1,3 +1,4 @@
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 import {
   AppstoreOutlined,
   LoginOutlined,
@@ -75,6 +76,7 @@ export default function Dashboard() {
   useEffect(() => {
     void load().catch(() => {});
   }, [days]);
+  usePageRefresh(() => load(true));
   const primary = [
     {
       title: t('用户总数'),
@@ -108,16 +110,8 @@ export default function Dashboard() {
   const secondary = [
     [t('角色'), data.roleCount],
     [t('停用用户'), data.disabledUsers],
-    [t('变更集'), data.changesetCount],
-    [
-      t('回滚率'),
-      data.rollbackRate === undefined
-        ? '—'
-        : `${(Number(data.rollbackRate) * 100).toFixed(1)}%`,
-    ],
     [t('任务成功'), data.jobSuccess],
     [t('任务失败'), data.jobFailed],
-    [t('回滚次数'), data.rollbackCount],
     [
       t('队列积压'),
       typeof data.queueBacklog === 'object'

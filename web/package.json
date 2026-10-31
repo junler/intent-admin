@@ -4,15 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/generate-pages.mjs && cross-env PORT=5173 max dev",
+    "dev": "node scripts/dev.mjs",
     "build": "node scripts/generate-pages.mjs && max build && node scripts/precompress.mjs",
     "preview": "max preview --port 5173",
     "lint": "biome lint src config && tsc --noEmit",
     "test": "vitest run",
-    "setup": "node scripts/generate-pages.mjs && max setup",
+    "setup": "node scripts/dev.mjs --setup",
     "typecheck": "tsc --noEmit",
     "i18n:check": "node scripts/localize-source.mjs --check",
-    "postinstall": "node scripts/generate-pages.mjs && max setup"
+    "postinstall": "node scripts/dev.mjs --setup"
   },
   "dependencies": {
     "@ant-design/cssinjs": "^1.23.0",
@@ -40,6 +40,7 @@
     "@types/react-dom": "^19.2.1",
     "@umijs/max": "4.7.27",
     "cross-env": "10.1.0",
+    "jsdom": "^26.1.0",
     "tailwindcss": "^4.1.14",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"

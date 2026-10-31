@@ -54,15 +54,16 @@ describe('global AI entry context', () => {
     expect(result.form).toBeUndefined();
     expect(result.prompt).toContain('保存确认');
   });
-  it('falls back to page help instead of selecting a search form automatically', () => {
+  it('recognizes an inline search form and prepares a query instruction', () => {
     const result = chooseAssistantContext(
       '/system/user',
       '用户管理',
       [],
-      [{ title: '搜索表单', mode: 'action', formId: 'ui.search.user' }],
+      [{ title: '用户管理', mode: 'query', formId: 'ui.search.user' }],
     );
-    expect(result.form).toBeUndefined();
-    expect(result.prompt).toContain('用户管理');
+    expect(result.form?.mode).toBe('query');
+    expect(result.form?.formId).toBe('ui.search.user');
+    expect(result.prompt).toBe('请帮我查询“用户管理”表单');
   });
   it('supports visible inline editors and custom dialogs without registered metadata', () => {
     const inline = chooseAssistantContext(

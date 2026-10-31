@@ -366,8 +366,14 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => ({
   ],
   footerRender: () => (
     <div className="intent-footer">
-      <span>Intent</span>
-      <span>Ant Design Pro</span>
+      <span>Junler</span>
+      <a
+        href="https://github.com/junler/intent-admin"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        GitHub
+      </a>
     </div>
   ),
   childrenRender: () => (

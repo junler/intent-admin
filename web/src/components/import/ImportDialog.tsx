@@ -4,7 +4,6 @@ import {
   InboxOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
-import { history } from '@umijs/max';
 import {
   Alert,
   App,
@@ -23,7 +22,6 @@ import { Auth } from '@/components/auth/Auth';
 import { DiffTable } from '@/components/diff/DiffTable';
 import { usePageActive } from '@/contexts/ActivePageContext';
 import { invalidateDicts } from '@/hooks/useDict';
-import { usePerm } from '@/hooks/usePerm';
 import { localizeMessage, t } from '@/i18n';
 import { ApiError, api, Code } from '@/utils/request';
 import { downloadImportFile } from './files';
@@ -53,7 +51,6 @@ export default function ImportDialog({
 }: ImportDialogProps) {
   const active = usePageActive();
   const { message } = App.useApp();
-  const canViewChanges = usePerm('system:changeset:list');
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File>();
   const [report, setReport] = useState<Report>();
@@ -148,7 +145,7 @@ export default function ImportDialog({
     setConfirming(true);
     setError('');
     try {
-      const result = await api.post<{ affected: number; changesetId: string }>(
+      const result = await api.post<{ affected: number }>(
         `${base}/import/confirm`,
         {
           confirmationId: report.confirmationId,
@@ -159,27 +156,7 @@ export default function ImportDialog({
       if (base.startsWith('/system/dict')) invalidateDicts();
       if (base === '/system/role')
         window.dispatchEvent(new Event('intent-admin:permissions-changed'));
-      message.success({
-        duration: 8,
-        content: (
-          <Space>
-            {t('已导入 {count} 条记录', { count: result.affected })}
-            {canViewChanges && (
-              <Button
-                type="link"
-                size="small"
-                onClick={() =>
-                  history.push(
-                    `/changesets?changesetId=${encodeURIComponent(result.changesetId)}`,
-                  )
-                }
-              >
-                {t('查看变更')}
-              </Button>
-            )}
-          </Space>
-        ),
-      });
+      message.success(t('已导入 {count} 条记录', { count: result.affected }));
       setOpen(false);
       setFile(undefined);
       setReport(undefined);

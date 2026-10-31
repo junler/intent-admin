@@ -12,6 +12,10 @@ interface UiForm {
   route: string;
   permission: string;
   fields: string[];
+  defaults?: Record<string, unknown>;
+  mode?: 'create' | 'update' | 'query' | 'action';
+  required?: string[];
+  descriptions?: Record<string, string>;
 }
 
 export const useUiForms = create<{ forms: Record<string, UiForm> }>(() => ({
@@ -25,7 +29,14 @@ export function useAiForm(options: {
   fields: string[];
   permission?: string;
   enabled?: boolean;
-  fill: (values: Record<string, any>) => void | Promise<void>;
+  defaults?: Record<string, unknown>;
+  mode?: 'create' | 'update' | 'query' | 'action';
+  required?: string[];
+  descriptions?: Record<string, string>;
+  fill: (
+    values: Record<string, any>,
+    defaults: Record<string, any>,
+  ) => void | Promise<void>;
 }) {
   const pageActive = usePageActive();
   const location = usePageLocation();
@@ -38,6 +49,9 @@ export function useAiForm(options: {
   const draft = useFormDraftStore((state) => state.draft);
   const identity = useUserStore((state) => state.identity);
   const fields = JSON.stringify(options.fields);
+  const defaults = JSON.stringify(options.defaults ?? {});
+  const required = JSON.stringify(options.required ?? []);
+  const descriptions = JSON.stringify(options.descriptions ?? {});
   const permission = options.permission ?? '';
   useEffect(() => {
     if (
@@ -52,6 +66,10 @@ export function useAiForm(options: {
       route,
       permission,
       fields: JSON.parse(fields),
+      defaults: JSON.parse(defaults),
+      mode: options.mode ?? 'action',
+      required: JSON.parse(required),
+      descriptions: JSON.parse(descriptions),
     };
     useUiForms.setState((state) => ({
       forms: { ...state.forms, [name]: descriptor },
@@ -63,7 +81,19 @@ export function useAiForm(options: {
         return { forms };
       });
     };
-  }, [active, identity, name, options.title, route, permission, fields]);
+  }, [
+    active,
+    identity,
+    name,
+    options.title,
+    route,
+    permission,
+    fields,
+    defaults,
+    options.mode,
+    required,
+    descriptions,
+  ]);
   useEffect(() => {
     if (
       !active ||
@@ -80,6 +110,9 @@ export function useAiForm(options: {
     const values = Object.fromEntries(
       Object.entries(pending.values).filter(([key]) => allowed.includes(key)),
     );
-    void Promise.resolve(fill.current(values)).catch(() => {});
+    const suggested = Object.fromEntries(
+      Object.entries(pending.defaults).filter(([key]) => allowed.includes(key)),
+    );
+    void Promise.resolve(fill.current(values, suggested)).catch(() => {});
   }, [active, identity, draft, name, route, permission, fields]);
 }

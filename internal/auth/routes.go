@@ -42,6 +42,15 @@ func BuildRoutes(menus []model.Menu, permissions []string) []Route {
 		if m.Status != "0" || m.DelFlag != "0" || m.MenuType == "F" {
 			continue
 		}
+		// Retired pages stay unavailable even with cached menus or custom aliases.
+		switch m.Path {
+		case "/changes", "/changesets", "/audit", "/ai/approvals":
+			continue
+		}
+		switch strings.TrimPrefix(m.Component, "/") {
+		case "changesets/index", "audit/index", "ai/approvals/index":
+			continue
+		}
 		children[m.ParentID] = append(children[m.ParentID], m)
 	}
 	for id := range children {

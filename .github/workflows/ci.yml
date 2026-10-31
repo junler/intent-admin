@@ -60,7 +60,7 @@ jobs:
           INTENT_ADMIN_DB_NAME: intent_resources_integration
           INTENT_ADMIN_DB_PORT: '5432'
       - name: Persisted plans and rollback integration
-        run: go test ./internal/plan ./internal/changeset -v -count=1
+        run: go test ./internal/plan ./internal/changeset ./internal/automation -v -count=1
         env:
           INTENT_ADMIN_TEST_DSN: host=127.0.0.1 port=5432 user=postgres password=integration-test-only dbname=intent_plan_integration sslmode=disable
       - name: XLSX import transaction integration

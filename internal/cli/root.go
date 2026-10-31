@@ -35,7 +35,7 @@ func newRoot() *cobra.Command {
 		Short: "intent-admin —— AI 原生的后台管理系统",
 		Long: `intent-admin 是一个 AI 原生的后台管理系统。
 
-人与 AI 双入口等权操作，所有写操作可预览、可追溯、可一键回滚，
+人与 AI 双入口等权操作，AI 高风险操作由本人确认，页面操作直接提交，
 并可作为 MCP Server 被外部 AI 客户端调用。
 
 子命令：

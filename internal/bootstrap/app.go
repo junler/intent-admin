@@ -21,6 +21,7 @@ import (
 	"github.com/junler/intent-admin/internal/adapter/mcpx"
 	"github.com/junler/intent-admin/internal/agent"
 	"github.com/junler/intent-admin/internal/auth"
+	"github.com/junler/intent-admin/internal/automation"
 	"github.com/junler/intent-admin/internal/cache"
 	"github.com/junler/intent-admin/internal/capability"
 	"github.com/junler/intent-admin/internal/changeset"
@@ -94,7 +95,7 @@ func New(cfg *config.Config) (*App, error) {
 
 	app := &App{Cfg: cfg, DB: db, Cache: rdb, Secret: cipher}
 	app.Auth = auth.New(db, rdb, cfg)
-	app.Changesets = changeset.New(db)
+	app.Changesets = changeset.NewWithoutHistory(db)
 	app.Knowledge = knowledge.New(db)
 	app.Tasks = task.New(db, rdb, cfg)
 
@@ -149,7 +150,6 @@ func (a *App) installExecutor() error {
 		ReadOnly:          dbx.NewReadOnlyRunner(),
 		Validate:          func(in any) error { return v.Struct(in) },
 		MaxChangesetItems: a.Cfg.Changeset.MaxItemsPerSet,
-		PersistChanges:    a.Changesets.Persist,
 		WriteAudit:        a.Changesets.WriteAudit,
 	})
 	return nil
@@ -163,22 +163,13 @@ func (a *App) registerFeatures() error {
 	if err := a.Resources.Bootstrap(context.Background()); err != nil {
 		return err
 	}
-	a.Changesets.Invalidate = a.System.Invalidate
-	a.Changesets.AuthorizeUndo = system.AuthorizeUndo(a.System)
-	a.Changesets.Register()
 	maxRisk, _ := capability.ParseRisk(a.Cfg.AI.MaxRisk)
 	a.Plans = plan.New(a.DB, plan.Options{TTL: a.Cfg.AI.PlanTTL, MaxSteps: a.Cfg.AI.MaxPlanSteps, MaxAffected: a.Cfg.AI.MaxAffected, MaxRisk: maxRisk, Changesets: a.Changesets})
 	a.Imports = importer.New(a.DB, a.Cache, a.Changesets, a.Cfg.Changeset.MaxItemsPerSet)
 	a.Notifications = notification.New(a.DB)
+	automation.Register(a.DB, a.Cfg.DB.TimeZone)
+	a.Tasks.ActorLoader = a.Auth.CurrentAIActor
 	a.Plans.ActorLoader = a.Auth.CurrentAIActor
-	a.Plans.Notify = func(ctx context.Context, event plan.ApprovalNotification) error {
-		titles := map[string]string{"pending": "收到计划审批", "approved": "计划审批已通过", "rejected": "计划审批已拒绝", "revoked": "计划审批已撤销", "applied": "审批计划已执行", "stale": "计划审批需要更新"}
-		title := titles[event.Status]
-		if title == "" {
-			title = "计划审批状态已更新"
-		}
-		return a.Notifications.Publish(ctx, event.UserID, title, "请进入审批中心查看计划及最新审批状态。", "/ai/approvals?id="+event.ApprovalID)
-	}
 	monitor.Register(a.DB, a.Cache, a.Cfg, a.Tasks)
 	a.Dashboard = dashboard.Register(a.DB, a.Cache, a.Cfg, a.Tasks)
 	a.Tasks.FileWriter = a.Resources.StoreReader
@@ -239,7 +230,6 @@ func (a *App) Router() *gin.Engine {
 	a.Auth.MountProtected(api)
 	a.Resources.Mount(api)
 	a.Agent.Mount(api)
-	a.Plans.RegisterApprovalHTTP(api.Group("/ai"))
 	a.Imports.Mount(api)
 	a.Notifications.Mount(api)
 	if a.OAuth != nil {

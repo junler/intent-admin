@@ -14,7 +14,7 @@ make migrate-up
 make dev
 ```
 
-The API listens on port 8080 and Umi Max on 5173. `API_PROXY` changes the development API target. `make build` builds the frontend, embeds it in the Go binary and writes `bin/intent-admin`. `docker compose up --build` starts the full local stack, including a private MinIO bucket. See [deployment](docs/deployment.md) for key management and separate workers.
+The API listens on port 8080 and Umi Max on 5173. `make dev` and `npm --prefix web run dev` share a development lock; stop the existing instance with Ctrl+C before starting another or running `npm --prefix web run setup`. The launcher stops the full process trees so Umi watchers cannot remain behind and race while regenerating `web/src/.umi`. `API_PROXY` changes the development API target. `make build` builds the frontend, embeds it in the Go binary and writes `bin/intent-admin`. `docker compose up --build` starts the full local stack, including a private MinIO bucket. See [deployment](docs/deployment.md) for key management and separate workers.
 
 ## Architecture and boundaries
 
@@ -142,9 +142,7 @@ Use explicit risks: low for reads, medium for a single change, high for deletion
 
 XLSX imports in `internal/feature/importer` compose the ordinary create capabilities for users, roles, parameters, dictionary data and demo items. Keep them create-only and permission-equivalent to the original capability. A file accepts at most 200 data rows and 5 MB, subject to a lower configured changeset limit. Preview is read-only, owner-bound and valid for 10 minutes. Confirmation rechecks the fingerprint and all rows inside one transaction; any failure rolls back the batch. Do not accept password/grant columns, credential parameters, formulas or arbitrary nested input. Add a supported entity through an explicit column specification and its reversible create operation.
 
-Cross-person approvals in `internal/plan` bind a different assigned reviewer to a saved plan fingerprint. Keep request, decision and execution limited to the relevant logged-in people. Both participants need the original permissions and current AI risk allowance; the reviewer also needs `ai:plan:approve`. Approval is not a grant. Changes to arguments, resolved references, data, permissions or risk require fresh review. Preserve `Actor.ApprovedBy` through changesets and audits. Private workflow notifications join the transaction through `internal/notification`; never replace them with public notices.
-
-Selective compensation in `internal/changeset` accepts `{id, itemIds, previewHash}`. Omitting `itemIds` keeps the full remaining-items operation; an explicit empty array is invalid. The preview supplies `confirmationHash`; pass it back as `previewHash` for a selection. Validate that every item belongs to that changeset, reject duplicates, keep each `undoGroup` atomic and retain conflict fields for retries. Completed selections are idempotent. Update both item and parent statuses, persist linked inverse changesets and keep source permissions/risk checks active through rollback of rollback. Custom Undo implementations must produce fresh inverse payloads without exposing credentials.
+AI plans in `internal/plan` use owner confirmation only. High-risk AI operations must show their current preview and wait for the initiating user to confirm. Recheck live permissions, risk ceilings and the preview fingerprint inside the execution transaction. Human page actions submit directly through the HTTP capability executor without a second risk confirmation. Cross-person approval, change-history, audit-trail and rollback endpoints are retired; do not register them in bootstrap. The application runtime disables snapshot persistence and rollback credential vault writes. Migration `00011` irreversibly removes old change/review history and operation logs; do not include that one-time purge in seed reruns. Ordinary operation logging remains available in monitoring.
 
 The integrated queue console uses `internal/task` and `internal/feature/monitor`. Enforce the configured queue whitelist and Redis namespace on every read and mutation. Preview and audit controls without exposing internal export payloads or changing their original identity. Keep durable completion checks when retrying or deleting queue records. Cancellation is best effort; queue controls cannot roll back committed business work.
 
@@ -152,7 +150,7 @@ MCP OAuth in `internal/oauth` uses an explicitly configured canonical `mcp.oauth
 
 For frontend copy, use `t` from `@/i18n` and add English values to the relevant catalogue under `web/src/i18n/messages`. Keep protocol strings, permission checks, stored values and user-entered content out of translation. Umi supplies the Chinese/English locale picker and reloads the document on a switch; do not add a second locale store. Use templates for interpolated UI messages and `localizeMessage` only for known server/product messages. Run `npm --prefix web run i18n:check` alongside tests and type checking.
 
-UI form assistance uses `list_forms`, `describe_form` and `fill_form` to prepare browser-only drafts. Shared CRUD editors support creation, record-bound updates and row-action forms automatically. Register independent forms with `useAiForm`, declaring only editable field names and a field-setting callback; never pass a submit handler or current field values. Drafts are account-bound, expire after two minutes and are consumed once. Final writes continue through the ordinary human HTTP capability executor, including previews, permissions and audit. Credentials must not be placed in URLs, browser storage, plans or retained model tool-call history.
+UI form assistance uses `list_forms`, `describe_form` and `fill_form` to prepare browser-only drafts. Shared CRUD editors support creation, record-bound updates and row-action forms automatically. Register independent forms with `useAiForm`, declaring only editable field names and a field-setting callback; never pass a submit handler or current field values. Drafts are account-bound, expire after two minutes and are consumed once. Final writes continue through the ordinary human HTTP capability executor, including previews, permissions and audit. Credentials must not be placed in URLs, browser storage, plans or retained model tool-call history. Open CRUD editors register their editable fields and declared default suggestions as local UI forms. AI fills the existing editor in place; suggestions fill only blank controls and explicit user values override them. Current control values never enter model context. An empty request without any available defaults must not report that the form was filled. Explicit default-fill requests for the focused form apply its declared defaults directly before model generation; filling a browser draft does not require another confirmation. UI form descriptors include required fields and static help so optional blank values are not treated as missing requirements.
 
 ## Validation
 
@@ -164,7 +162,7 @@ npm --prefix web run i18n:check
 make build
 ```
 
-Integration tests require disposable databases; some tests truncate tables. Never point them at development data that matters or production. CI creates isolated databases and runs all suites. To run plans, cross-person approvals and selective rollback locally, create a disposable database and provide PostgreSQL plus Redis:
+Integration tests require disposable databases; some tests truncate tables. Never point them at development data that matters or production. CI creates isolated databases and runs all suites. To run plan confirmation and internal persistence checks locally, create a disposable database and provide PostgreSQL plus Redis:
 
 ```sh
 export INTENT_ADMIN_TEST_DSN='host=127.0.0.1 port=5432 user=postgres password=test-only dbname=intent_plan_integration sslmode=disable'
@@ -189,10 +187,51 @@ The plan, changeset and OAuth suites create isolated schemas. The import suite c
 
 Set `INTENT_ADMIN_DB_NAME`, `INTENT_ADMIN_DB_PASSWORD` and, when needed, `INTENT_ADMIN_DB_PORT` for those database-backed suites. The full commands and isolated database names are in [the CI workflow](.github/workflows/ci.yml). Real S3 tests additionally accept `INTENT_ADMIN_MINIO_TEST_ENDPOINT`, `INTENT_ADMIN_MINIO_TEST_PUBLIC_ENDPOINT`, `INTENT_ADMIN_MINIO_TEST_ACCESS_KEY` and `INTENT_ADMIN_MINIO_TEST_SECRET_KEY`; use a disposable private MinIO bucket environment.
 
-Test permission failures, risk limits, before/after conflicts, transaction rollback and resource ownership when changing those behaviors. Extension tests also cover partial rollback and inverse credential compensation, stale approval/import confirmations, OAuth scope and refresh-token boundaries, resource visibility after revocation, and queue namespace/completion protections. New low-impact presentation changes do not need tests that merely repeat the implementation.
+Test permission failures, risk limits, before/after conflicts, transaction rollback and resource ownership when changing those behaviors. Extension tests also cover partial rollback and inverse credential compensation, stale plan/import confirmations, OAuth scope and refresh-token boundaries, resource visibility after revocation, and queue namespace/completion protections. New low-impact presentation changes do not need tests that merely repeat the implementation.
 
 ## Pull requests
 
 Use a feature branch and a Conventional Commit title such as `feat: add notice expiry` or `fix: reject stale rollback`. Include the problem, resulting behavior, validation and migration instructions. Add backward-compatible migrations; do not rewrite an already released migration. The current versioned migrations define 29 application tables, excluding Goose metadata, including approvals, OAuth state, private notifications and the durable task outbox. Keep secrets and generated build output out of Git. Use English code comments and Chinese source product/error text with English catalogue entries for translated UI messages. For breaking changes, update the changelog with the migration path.
 
 Report security vulnerabilities privately through the process in [SECURITY.md](SECURITY.md).
+
+## General AI tools and reusable flows
+
+AI interactions can use `automation.sql.schema` to discover permitted tables and
+`automation.sql.query` for PostgreSQL SELECT queries, including joins, CTEs,
+window functions and aggregates. SQL access inherits the table's visible list
+capability permission; credential columns and raw execution payloads are removed
+before expressions execute. Soft-deleted rows are excluded. Queries bind `$1`,
+`$2`, etc., run with a five-second deadline and return at most 500 rows/64 KiB.
+The PostgreSQL parser runs through WASM, retaining CGO-free builds.
+
+`system.notification.send` sends a private bell notification to the current
+principal. Notifications, log retention, dashboard/knowledge refresh and expired
+export cleanup are ordinary capabilities available during conversations; a cron
+handler is not the catalogue of interactive operations. Maintenance identifiers
+retain their `task.system.*` names for compatibility and use their business
+permissions rather than job-edit permission.
+
+Compose reads with `automation.flow.query`, or propose `automation.flow.run`
+for a transaction containing reads and business writes. Each step has `name`,
+`capability` and `args`. `${stats.rows.0.count}` references an earlier read;
+standalone references retain JSON types and embedded references interpolate text.
+`${users.rows.*.userId}` projects an array for bulk operations; optional `when`
+references a boolean query result to skip a step when its condition is false.
+`${now}`, `${today}`, `${yesterday}` and `${tomorrow}` resolve on each run in
+`timeZone`, defaulting to the configured database business timezone. Write-result
+dependencies must use separate confirmed plans so every write remains previewable.
+Flows cannot nest flows, manage jobs or wrap credential/configuration writes.
+
+The `system:workflow` cron handler accepts `{"flow":{"steps":[...]}}` and
+reuses the same engine. The server binds the execution owner, entry point, risk
+ceiling and permission snapshot, preserving them on edits. Every run intersects
+that snapshot with live owner grants and risk limits; it never queries or writes
+as the scheduler's unrestricted system actor. Use dynamic SQL/time parameters
+instead of persisting an already-computed number in recurring notification text.
+No schema migration is required. Log retention and file cleanup handlers now also
+require the corresponding business removal permission when jobs are saved or run.
+
+Run `go test ./internal/automation ./internal/task ./internal/notification`.
+`INTENT_ADMIN_TEST_DSN` enables the SQL integration suite in an isolated schema of
+a disposable `_integration` database, alongside the plan integration tests.

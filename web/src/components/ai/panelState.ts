@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 export interface FormFocus {
   title: string;
-  mode: 'create' | 'update' | 'action';
+  mode: 'create' | 'update' | 'query' | 'action';
   route?: string;
   path?: string;
   recordId?: string;

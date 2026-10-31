@@ -24,27 +24,7 @@ export interface Plan {
   affected: number;
   mode: string;
   status: string;
-  changesetId?: string;
   expiresAt?: string;
-  approval?: PlanApproval;
-}
-export interface PlanApproval {
-  id: string;
-  planId: string;
-  proposerId: number;
-  proposerName: string;
-  reviewerId: number;
-  reviewerName: string;
-  status: string;
-  fingerprint: string;
-  requestComment: string;
-  decisionComment: string;
-  createTime: string;
-  expiresAt: string;
-  decisionTime?: string;
-  updateTime: string;
-  changesetId?: string;
-  plan?: Plan;
 }
 const levels: Record<Risk, number> = {
   low: 0,
@@ -128,7 +108,6 @@ export function managementURL(step: PlanStep): string | undefined {
     aiProvider: '/system/ai-provider',
     storage: '/system/storage',
     upload: '/system/upload',
-    changeset: '/changesets',
     job: '/monitor/job',
     operlog: '/monitor/operlog',
     loginlog: '/monitor/loginlog',

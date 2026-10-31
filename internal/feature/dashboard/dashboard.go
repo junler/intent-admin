@@ -44,9 +44,6 @@ type Stats struct {
 	OnlineUsers      int64            `json:"onlineUsers"`
 	TodayOperations  int64            `json:"todayOperations"`
 	TodayLogins      int64            `json:"todayLogins"`
-	ChangesetCount   int64            `json:"changesetCount"`
-	RollbackCount    int64            `json:"rollbackCount"`
-	RollbackRate     float64          `json:"rollbackRate"`
 	QueueBacklog     int64            `json:"queueBacklog"`
 	JobSuccess       int64            `json:"jobSuccess"`
 	JobFailed        int64            `json:"jobFailed"`
@@ -126,14 +123,11 @@ func (s *Service) RefreshDays(ctx context.Context, days int) (Stats, error) {
 		table, where string
 		args         []any
 		dst          *int64
-	}{{"sys_user", "del_flag='0'", nil, &out.UserCount}, {"sys_user", "del_flag='0' AND status='0'", nil, &out.ActiveUsers}, {"sys_user", "del_flag='0' AND status='1'", nil, &out.DisabledUsers}, {"sys_role", "del_flag='0'", nil, &out.RoleCount}, {"sys_oper_log", "oper_time>=?", []any{today}, &out.TodayOperations}, {"sys_login_log", "login_time>=? AND status='0'", []any{today}, &out.TodayLogins}, {"sys_changeset", "create_time>=?", []any{since}, &out.ChangesetCount}, {"sys_changeset", "create_time>=? AND status='rolled_back'", []any{since}, &out.RollbackCount}, {"sys_job_log", "create_time>=? AND status='0'", []any{since}, &out.JobSuccess}, {"sys_job_log", "create_time>=? AND status='1'", []any{since}, &out.JobFailed}}
+	}{{"sys_user", "del_flag='0'", nil, &out.UserCount}, {"sys_user", "del_flag='0' AND status='0'", nil, &out.ActiveUsers}, {"sys_user", "del_flag='0' AND status='1'", nil, &out.DisabledUsers}, {"sys_role", "del_flag='0'", nil, &out.RoleCount}, {"sys_oper_log", "oper_time>=?", []any{today}, &out.TodayOperations}, {"sys_login_log", "login_time>=? AND status='0'", []any{today}, &out.TodayLogins}, {"sys_job_log", "create_time>=? AND status='0'", []any{since}, &out.JobSuccess}, {"sys_job_log", "create_time>=? AND status='1'", []any{since}, &out.JobFailed}}
 	for _, x := range queries {
 		if err := q.Table(x.table).Where(x.where, x.args...).Count(x.dst).Error; err != nil {
 			return s.fallback(ctx, days), nil
 		}
-	}
-	if out.ChangesetCount > 0 {
-		out.RollbackRate = float64(out.RollbackCount) / float64(out.ChangesetCount)
 	}
 	if err := q.Table("sys_oper_log").Select("actor_type,count(*) AS count,sum(CASE WHEN status='1' THEN 1 ELSE 0 END) AS failed").Where("oper_time>=?", since).Group("actor_type").Scan(&out.ByActor).Error; err != nil {
 		return s.fallback(ctx, days), nil

@@ -1,3 +1,4 @@
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 import {
   DeleteOutlined,
   DownloadOutlined,
@@ -27,6 +28,7 @@ import ImportDialog from '@/components/import/ImportDialog';
 import { usePageActive, usePageLocation } from '@/contexts/ActivePageContext';
 import { getLocale, t } from '@/i18n';
 import { useAiForm } from '@/hooks/useAiForm';
+import { formDefaults, fillWithDefaults } from '@/components/ai/formDefaults';
 import { useFormDraftStore } from '@/stores/formDraft';
 import { useUserStore } from '@/stores/user';
 import { hasPermission } from '@/utils/permission';
@@ -66,6 +68,7 @@ export function CrudPage(cfg: CrudConfig) {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<React.Key[]>([]);
   const [editing, setEditing] = useState<Row | null>();
+  const editorId = `editor.${cfg.base}.${editing ? String(editing[cfg.idKey]) : 'create'}`;
   const draft = useFormDraftStore((state) => state.draft);
   const owner = useUserStore((state) => state.identity?.user.userId);
   const { message } = App.useApp();
@@ -173,6 +176,23 @@ export function CrudPage(cfg: CrudConfig) {
       .map((field) => field.name),
     fill: (values) => search.setFieldsValue(values),
   });
+  useAiForm({
+    id: editorId,
+    title: cfg.title,
+    mode: editing ? 'update' : 'create',
+    enabled: editing !== undefined,
+    permission: cfg.perm ? `${cfg.perm}:${editing ? 'edit' : 'add'}` : '',
+    fields: cfg.fields.filter((field) => !field.hidden && field.form !== false && !(editing && field.createOnly)).map((field) => field.name),
+    defaults: formDefaults(cfg.fields, !!editing, cfg.title),
+    required: cfg.fields.filter((field) => !field.hidden && field.form !== false && !(editing && field.createOnly) && (field.required || (!editing && field.createRequired))).map((field) => field.name),
+    descriptions: Object.fromEntries(cfg.fields.filter((field) => field.help).map((field) => [field.name, field.help as string])),
+    fill: (values, defaults) => {
+      const patch = fillWithDefaults(form.getFieldsValue(), fillableValues(cfg.fields, defaults, !!editing), fillableValues(cfg.fields, values, !!editing));
+      const combined = { ...form.getFieldsValue(), ...patch };
+      form.setFieldsValue({ ...cfg.onValuesChange?.(patch, combined), ...patch });
+    },
+  });
+  usePageRefresh(() => { setSelected([]); return load(); });
   const action = useAdminAction(() => {
     setSelected([]);
     void load().catch(() => {});
@@ -467,8 +487,8 @@ export function CrudPage(cfg: CrudConfig) {
           >
             <Fields
               aiForm={{
-                title: t('{title}：搜索表单', { title: cfg.title }),
-                mode: 'action',
+                title: cfg.title,
+                mode: 'query',
                 formId: `ui.search.${cfg.base}`,
               }}
               fields={searchFields.map((field) => ({
@@ -483,8 +503,8 @@ export function CrudPage(cfg: CrudConfig) {
               <Space>
                 <AiFormMarker
                   form={{
-                    title: t('{title}：搜索表单', { title: cfg.title }),
-                    mode: 'action',
+                    title: cfg.title,
+                    mode: 'query',
                     formId: `ui.search.${cfg.base}`,
                   }}
                 />
@@ -592,6 +612,7 @@ export function CrudPage(cfg: CrudConfig) {
               title: cfg.title,
               mode: editing ? 'update' : 'create',
               route: cfg.base,
+              formId: `ui.${editorId}`,
               recordId: editing ? String(editing[cfg.idKey]) : undefined,
             }}
           />
@@ -627,6 +648,7 @@ export function CrudPage(cfg: CrudConfig) {
                 title: cfg.title,
                 mode: editing ? 'update' : 'create',
                 route: cfg.base,
+                formId: `ui.${editorId}`,
                 recordId: editing ? String(editing[cfg.idKey]) : undefined,
               }}
             />
@@ -702,8 +724,11 @@ function ActionButton({
     fields: (spec.fields ?? []).map((field) => field.name),
     permission: spec.perm,
     enabled: open && !spec.readOnly,
-    fill: (values) =>
-      form.setFieldsValue(fillableValues(spec.fields ?? [], values, false)),
+    defaults: formDefaults(spec.fields ?? [], false, spec.label),
+    required: (spec.fields ?? []).filter((field) => field.required || field.createRequired).map((field) => field.name),
+    descriptions: Object.fromEntries((spec.fields ?? []).filter((field) => field.help).map((field) => [field.name, field.help as string])),
+    fill: (values, defaults) =>
+      form.setFieldsValue(fillWithDefaults(form.getFieldsValue(), fillableValues(spec.fields ?? [], defaults, false), fillableValues(spec.fields ?? [], values, false))),
   });
   const previewing = useRef(false);
   const action = useAdminAction(

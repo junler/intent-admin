@@ -71,10 +71,5 @@ func TestRouteIsDerivedFromTheRegistry(t *testing.T) {
 	if got := Route(nil); got != "" {
 		t.Fatalf("Route(nil) = %q", got)
 	}
-	// Pages that deliberately do not sit at their capability's path keep their
-	// explicit mapping.
-	changeset := &capability.Entry{Meta: capability.Meta{Name: "x.changeset.list", HTTP: &capability.HTTPBinding{Path: "/system/changeset/list"}}}
-	if got := Route(changeset); got != "/changesets" {
-		t.Fatalf("changeset route = %q, want /changesets", got)
-	}
+
 }

@@ -81,6 +81,10 @@ func TestPlanPersistenceRecheckGroupingRollback(t *testing.T) {
 	if beforeMenu != afterMenu {
 		t.Fatalf("seed rerun duplicated menus: before%d after%d", beforeMenu, afterMenu)
 	}
+	var retiredActive int64
+	if err := db.Table("sys_menu").Where("status='0' AND (path IN ? OR perms LIKE 'system:changeset:%' OR perms='ai:plan:approve')", []string{"/changes", "/changesets", "/audit", "/ai/approvals"}).Count(&retiredActive).Error; err != nil || retiredActive != 0 {
+		t.Fatalf("seed restored retired menus: count=%d err=%v", retiredActive, err)
+	}
 	sets := changeset.New(db)
 	sets.Register()
 	demo.Register(db, nil)

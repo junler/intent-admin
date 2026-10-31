@@ -32,6 +32,9 @@ func configCipher(s *Service) (*secret.Cipher, error) {
 	return secret.New(hex.EncodeToString(key[:]))
 }
 func configVault(s *Service, ctx context.Context, before, after string) (string, error) {
+	if !capability.RecordsHistory() {
+		return "", nil
+	}
 	cipher, err := configCipher(s)
 	if err != nil {
 		return "", err

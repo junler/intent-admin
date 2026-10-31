@@ -1,3 +1,4 @@
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 import { DetailDialog } from '@/components/common/DetailDialog';
 import {
   CheckCircleOutlined,
@@ -169,6 +170,7 @@ export default function Queue() {
     void loadSummary().catch(() => {});
     void actionRef.current?.reload();
   }, [loadSummary]);
+  usePageRefresh(refresh);
   const action = useAdminAction(() => {
     setDetailOpen(false);
     refresh();

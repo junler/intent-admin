@@ -5,6 +5,16 @@ import { useAiPanel } from './panelState';
 beforeEach(() => useAiPanel.setState({ open: false, request: undefined }));
 
 describe('AI form entry prompts', () => {
+  it.each([
+    ['create', '请帮我新增“个人访问令牌”表单'],
+    ['update', '请帮我修改“个人访问令牌”表单'],
+    ['query', '请帮我查询“个人访问令牌”表单'],
+  ] as const)('prefills a direct %s form instruction', (mode, expected) => {
+    const form = { title: '个人访问令牌', mode };
+    useAiPanel.getState().compose(formPrompt(form), form);
+    expect(useAiPanel.getState().request?.draft).toBe(expected);
+    expect(useAiPanel.getState().request?.text).toBeUndefined();
+  });
   it('opens the composer with a draft and metadata without requesting an immediate send', () => {
     const form = {
       title: '用户管理',

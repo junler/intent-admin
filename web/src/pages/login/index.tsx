@@ -357,7 +357,16 @@ export default function LoginPage() {
           </div>
         </section>
       </main>
-      <footer className="intent-login-footer">Intent · Ant Design Pro</footer>
+      <footer className="intent-login-footer">
+        Junler ·{' '}
+        <a
+          href="https://github.com/junler/intent-admin"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          GitHub
+        </a>
+      </footer>
     </div>
   );
 }

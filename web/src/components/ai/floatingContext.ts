@@ -22,7 +22,19 @@ export function chooseAssistantContext(
   const layer = Math.max(1800, (popup?.layer ?? 0) + 100);
   let form: FormFocus | undefined = popup?.forms[0];
   if (!popup)
-    form = inlineForms.find((item) => item.mode !== 'action' || !!item.path);
+    form =
+      inlineForms.find(
+        (item) =>
+          item.mode === 'create' ||
+          item.mode === 'update' ||
+          (item.mode === 'action' && !!item.path),
+      ) ??
+      inlineForms.find(
+        (item) =>
+          item.mode === 'query' || item.formId?.startsWith('ui.search.'),
+      );
+  if (form?.mode === 'action' && form.formId?.startsWith('ui.search.'))
+    form = { ...form, mode: 'query' };
   if (!form && popup?.hasInputs) {
     form = {
       title: popup.title || pageTitle,
@@ -30,7 +42,9 @@ export function chooseAssistantContext(
         ? 'create'
         : /编辑|修改|更新|\b(edit|update)\b/i.test(popup.title)
           ? 'update'
-          : 'action',
+          : /查询|搜索|检索|\b(search|query|filter)\b/i.test(popup.title)
+            ? 'query'
+            : 'action',
     };
   }
   if (form) {
@@ -75,7 +89,7 @@ function readForms(container: ParentNode, inlineOnly = false): FormFocus[] {
         if (
           !value ||
           typeof value.title !== 'string' ||
-          !['create', 'update', 'action'].includes(value.mode)
+          !['create', 'update', 'query', 'action'].includes(value.mode)
         )
           return [];
         return [value];

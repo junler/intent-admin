@@ -1,30 +1,13 @@
 import { history } from '@umijs/max';
-import {
-  Alert,
-  App,
-  Button,
-  Card,
-  Collapse,
-  Radio,
-  Space,
-  Tag,
-  Typography,
-} from 'antd';
+import { Alert, App, Button, Card, Space, Tag, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import type { Risk } from '@/api/types';
 import { RiskColor, RiskLabel } from '@/api/types';
-import { DiffTable } from '@/components/diff/DiffTable';
-import { getLocale, t } from '@/i18n';
+import { t } from '@/i18n';
 import { useUserStore } from '@/stores/user';
 import { ApiError, api, Code } from '@/utils/request';
-import { PlanApprovalControls } from './PlanApproval';
-import {
-  completedPlanEvidence,
-  managementURL,
-  type Plan,
-  planState,
-} from './state';
-import { PageSuggestions } from './PageSuggestions';
+import { refreshCurrentPage } from '@/utils/pageRefresh';
+import { managementURL, type Plan, planState } from './state';
 
 export type { Plan, PlanStep } from './state';
 
@@ -100,13 +83,14 @@ export function PlanCard({
       setStale(false);
       setRiskBlocked(false);
       setNow(Date.now());
-      if (kind === 'apply')
+      if (kind === 'apply') {
+        void refreshCurrentPage();
         message.success(
           result.status === 'done'
             ? t('计划已执行')
             : t('此步骤已执行，请检查下一步的实际预览再确认'),
         );
-      else if (kind === 'preview')
+      } else if (kind === 'preview')
         message.success(t('已获取最新预览，请检查差异后确认'));
     } catch (error) {
       if (error instanceof ApiError && error.code === Code.StaleData) {
@@ -124,46 +108,45 @@ export function PlanCard({
     }
   }
 
+  const finished = ['done', 'aborted'].includes(plan.status);
   const needsPreview =
-    stale ||
-    state.expired ||
-    plan.status === 'draft' ||
-    ['stale', 'expired'].includes(plan.approval?.status ?? '') ||
-    (plan.approval &&
-      ['pending', 'approved'].includes(plan.approval.status) &&
-      Date.parse(plan.approval.expiresAt) <= now);
-  const manual = state.exceeded || riskBlocked;
+    !finished && (stale || state.expired || plan.status === 'draft');
+  const manual = !finished && (state.exceeded || riskBlocked);
+  const warnings = [
+    ...new Set(plan.steps.flatMap((step) => step.preview?.warnings ?? [])),
+  ];
+
   return (
     <Card
       className="intent-plan-card"
       size="small"
-      title={t('操作计划')}
+      title={
+        finished ? (statusLabels[plan.status] ?? plan.status) : t('操作确认')
+      }
       extra={
         <Tag color={RiskColor[plan.maxRisk]}>{RiskLabel[plan.maxRisk]}</Tag>
       }
     >
-      <Typography.Paragraph>{plan.intent}</Typography.Paragraph>
-      <Space wrap className="mb-3">
-        <Tag>{statusLabels[plan.status] ?? plan.status}</Tag>
-        <Typography.Text>
-          {t('预计影响 ')}
-          {plan.affected} {t(' 条')}
-        </Typography.Text>
-        {plan.expiresAt && (
-          <Typography.Text type="secondary">
-            {t('有效期至 ')}
-            {new Date(plan.expiresAt).toLocaleString(getLocale())}
-          </Typography.Text>
-        )}
-      </Space>
+      <Typography.Paragraph>
+        {mode === 'stepwise' && state.step
+          ? state.step.note || state.step.preview?.summary || plan.intent
+          : plan.intent}
+      </Typography.Paragraph>
+      {warnings.map((warning) => (
+        <Alert
+          key={warning}
+          type="warning"
+          showIcon
+          title={warning}
+          className="mb-3"
+        />
+      ))}
       {manual && (
         <Alert
           type="warning"
           showIcon
           title={t('需要在管理页面执行')}
-          description={t(
-            '此计划超出 AI 的执行上限。请检查差异，并使用每步下方的入口前往管理页面。',
-          )}
+          description={t('此操作超出 AI 的执行上限，请前往管理页面执行。')}
           className="mb-3"
         />
       )}
@@ -185,107 +168,20 @@ export function PlanCard({
           className="mb-3"
         />
       )}
-      <Collapse
-        className="intent-plan-steps"
-        size="small"
-        defaultActiveKey={plan.steps.slice(0, 1).map((step) => step.seq)}
-        items={plan.steps.map((step) => ({
-          key: step.seq,
-          label: (
-            <Space wrap>
-              <Tag>{statusLabels[step.status] ?? step.status}</Tag>
-              <span title={step.capability}>
-                {step.seq + 1}.{' '}
-                {step.note || step.preview?.summary || step.capability}
-              </span>
-            </Space>
-          ),
-          children: (
-            <>
-              {step.error && (
-                <Alert type="error" title={step.error} className="my-2" />
-              )}
-              {step.preview ? (
-                <DiffTable preview={step.preview} layout="cards" />
-              ) : (
-                <Typography.Paragraph type="secondary">
-                  {t('只读查询步骤。')}
-                </Typography.Paragraph>
-              )}
-              {step.result !== undefined && (
-                <Collapse
-                  size="small"
-                  items={[
-                    {
-                      key: 'result',
-                      label: t('查询 / 执行结果'),
-                      children: (
-                        <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all">
-                          {JSON.stringify(step.result, null, 2)}
-                        </pre>
-                      ),
-                    },
-                  ]}
-                />
-              )}
-              {managementURL(step) && (
-                <Button
-                  type="link"
-                  onClick={() => {
-                    const route = managementURL(step);
-                    if (route) history.push(route);
-                  }}
-                >
-                  {t('前往管理页面核对')}
-                </Button>
-              )}
-            </>
-          ),
-        }))}
-      />
-      {!readOnly && (
-        <PlanApprovalControls
-          plan={plan}
-          disabled={busy || manual}
-          onUpdated={(result) => {
-            setPlan(result);
-            onUpdated?.(result);
-            setStale(false);
-            setNow(Date.now());
-          }}
-        />
-      )}
-      {!readOnly && (
+      {!readOnly && !finished && (
         <Space wrap className="mt-4">
-          {state.executable && !stale && !riskBlocked && !plan.approval && (
-            <>
-              {plan.steps.length > 1 && (
-                <Radio.Group
-                  value={mode}
-                  disabled={busy}
-                  onChange={(e) => setMode(e.target.value)}
-                  options={[
-                    {
-                      value: 'all',
-                      label: t('确认整个计划'),
-                      disabled: state.requiresStepwise,
-                    },
-                    { value: 'stepwise', label: t('逐步确认') },
-                  ]}
-                />
-              )}
-              <Button
-                type="primary"
-                loading={busy}
-                onClick={() => void action('apply')}
-              >
-                {mode === 'stepwise'
-                  ? t('确认执行第 {value0} 步', {
-                      value0: (state.step?.seq ?? 0) + 1,
-                    })
-                  : t('确认执行计划')}
-              </Button>
-            </>
+          {state.executable && !stale && !riskBlocked && (
+            <Button
+              type="primary"
+              loading={busy}
+              onClick={() => void action('apply')}
+            >
+              {mode === 'stepwise'
+                ? t('确认执行第 {value0} 步', {
+                    value0: (state.step?.seq ?? 0) + 1,
+                  })
+                : t('确认执行')}
+            </Button>
           )}
           {needsPreview && !['done', 'aborted'].includes(plan.status) && (
             <Button loading={busy} onClick={() => void action('preview')}>
@@ -294,41 +190,29 @@ export function PlanCard({
           )}
           {!['done', 'aborted'].includes(plan.status) && (
             <Button disabled={busy} onClick={() => void action('abort')}>
-              {t('放弃计划')}
+              {t('取消')}
             </Button>
           )}
-          <Button
-            disabled={busy}
-            onClick={async () => {
-              const result = await api.get<Plan>(
-                `/ai/plans/${plan.id}`,
-                undefined,
-                { dedupe: false },
-              );
-              setPlan(result);
-              onUpdated?.(result);
-              setNow(Date.now());
-            }}
-          >
-            {t('刷新状态')}
-          </Button>
-          {plan.changesetId && (
-            <Button
-              onClick={() =>
-                history.push(
-                  `/changesets?id=${encodeURIComponent(plan.changesetId ?? '')}`,
-                )
-              }
-            >
-              {t('查看变更与撤销')}
-            </Button>
-          )}
+          {manual &&
+            [
+              ...new Set(
+                plan.steps
+                  .map(managementURL)
+                  .filter((route): route is string => !!route),
+              ),
+            ].map((route) => (
+              <Button
+                key={route}
+                onClick={() => {
+                  history.push(route);
+                  onNavigate?.();
+                }}
+              >
+                {t('前往管理页面核对')}
+              </Button>
+            ))}
         </Space>
       )}
-      <PageSuggestions
-        evidence={completedPlanEvidence(plan)}
-        onNavigate={onNavigate}
-      />
     </Card>
   );
 }

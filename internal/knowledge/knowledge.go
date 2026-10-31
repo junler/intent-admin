@@ -82,23 +82,28 @@ func RegisterRule(rule RuleDef) {
 	registry.rules = append(registry.rules, rule)
 }
 func init() {
-	defs := [][4]string{{"sys_user", "系统用户", "user_id", "user_name"}, {"sys_role", "角色", "role_id", "role_name"}, {"sys_menu", "菜单和权限点", "menu_id", "menu_name"}, {"sys_config", "系统参数", "config_id", "config_name"}, {"sys_notice", "通知公告", "notice_id", "notice_title"}, {"sys_dict_type", "字典类型", "dict_id", "dict_name"}, {"sys_dict_data", "字典项", "dict_code", "dict_label"}, {"sys_upload", "文件", "upload_id", "file_name"}, {"sys_job", "定时任务", "job_id", "job_name"}, {"sys_job_log", "任务执行日志", "job_log_id", "job_name"}, {"sys_oper_log", "行为溯源", "oper_id", "capability"}, {"sys_login_log", "登录日志", "info_id", "user_name"}, {"sys_ai_provider", "模型服务配置", "provider_id", "name"}, {"sys_storage_config", "存储配置", "storage_id", "name"}, {"sys_access_token", "个人访问令牌", "token_id", "name"}, {"sys_ai_plan", "操作计划", "plan_id", "intent"}, {"sys_changeset", "变更集", "changeset_id", "summary"}, {"sys_changeset_item", "变更明细", "item_id", "entity_label"}, {"sys_ai_plan_approval", "跨人计划审批", "approval_id", "plan_id"}, {"sys_notification", "个人通知", "notification_id", "title"}, {"sys_oauth_grant", "MCP 授权", "grant_id", "client_id"}, {"demo_item", "示例条目", "item_id", "name"}}
+	defs := [][4]string{{"sys_user", "系统用户", "user_id", "user_name"}, {"sys_role", "角色", "role_id", "role_name"}, {"sys_menu", "菜单和权限点", "menu_id", "menu_name"}, {"sys_config", "系统参数", "config_id", "config_name"}, {"sys_notice", "通知公告", "notice_id", "notice_title"}, {"sys_dict_type", "字典类型", "dict_id", "dict_name"}, {"sys_dict_data", "字典项", "dict_code", "dict_label"}, {"sys_upload", "文件", "upload_id", "file_name"}, {"sys_job", "定时任务", "job_id", "job_name"}, {"sys_job_log", "任务执行日志", "job_log_id", "job_name"}, {"sys_oper_log", "操作日志", "oper_id", "capability"}, {"sys_login_log", "登录日志", "info_id", "user_name"}, {"sys_ai_provider", "模型服务配置", "provider_id", "name"}, {"sys_storage_config", "存储配置", "storage_id", "name"}, {"sys_access_token", "个人访问令牌", "token_id", "name"}, {"sys_ai_plan", "操作计划", "plan_id", "intent"}, {"sys_notification", "个人通知", "notification_id", "title"}, {"sys_oauth_grant", "MCP 授权", "grant_id", "client_id"}, {"demo_item", "示例条目", "item_id", "name"}}
 	for _, d := range defs {
 		RegisterEntity(EntityDef{Table: d[0], Summary: d[1], KeyField: d[2], LabelField: d[3], Notes: []string{"status='0' 正常，'1' 停用；del_flag='0' 存在，'2' 软删除（带这些字段的表）"}})
 	}
 	RegisterEntity(EntityDef{Table: "sys_user", Summary: "系统用户", KeyField: "user_id", LabelField: "user_name", Relations: []Relation{{Kind: "many2many", Target: "sys_role", Via: "sys_user_role", Summary: "用户所属角色"}, {Kind: "one2many", Target: "sys_user_perm", Summary: "用户额外授权，仅叠加不撤回角色权限"}}, Notes: []string{"ai_max_risk为空时用全局值；用户风险上限不能提高全局上限", "password是bcrypt哈希，不得向模型返回"}})
 	RegisterEntity(EntityDef{Table: "sys_role", Summary: "角色", KeyField: "role_id", LabelField: "role_name", Relations: []Relation{{Kind: "many2many", Target: "sys_menu", Via: "sys_role_menu", Summary: "角色的菜单和按钮授权"}}, Notes: []string{"role_key='admin' 的有效角色获得 *:*:* 权限"}})
-	RegisterRule(RuleDef{Scope: "*", Rule: "写操作必须先预演并确认；计划执行前重新检查当前数据，变化时返回412", Enforced: true})
+	RegisterRule(RuleDef{Scope: "*", Rule: "AI写操作先预演并由当前用户确认，高风险操作不能自动执行；页面人工操作直接提交；计划执行前重新检查当前数据，变化时返回412", Enforced: true})
 	RegisterRule(RuleDef{Scope: "*", Rule: "AI和MCP调用同时受权限、入口可见性和风险上限约束", Enforced: true})
 	RegisterRule(RuleDef{Scope: "sys_user", Rule: "超级管理员不可删除、不可停用，非超管不能修改其角色或密码", Enforced: true})
 	RegisterRule(RuleDef{Scope: "sys_menu", Rule: "M是目录、C是页面、F是按钮权限；隐藏菜单仍保留路由，停用菜单不贡献权限", Enforced: true})
 	RegisterRule(RuleDef{Scope: "sys_ai_provider", Rule: "凭证加密保存；模型服务及存储配置写操作不向AI和MCP开放", Enforced: true})
-	RegisterRule(RuleDef{Scope: "sys_changeset", Rule: "回滚只恢复变更涉及的字段，当前值偏离记录时跳过并报告冲突", Enforced: true})
 	RegisterRule(RuleDef{Scope: "sys_job", Rule: "执行计划保存为标准五字段 cron（分钟 小时 日 月 周）；每分钟为 * * * * *，也支持 @every 1m。新任务默认暂停，需要运行时显式设置 status='0'", Enforced: true})
-	RegisterRule(RuleDef{Scope: "sys_job", Rule: "定时个人通知使用 system:notifyUser，jobParams 为包含 title、content 的 JSON 字符串；接收人由服务端绑定为创建者，后续编辑不得更换接收人；通知显示在接收人的铃铛中，不是公开公告", Enforced: true})
+	RegisterRule(RuleDef{Scope: "sys_job", Rule: "固定内容的定时个人通知使用 system:notifyUser；动态查询结果通知使用 system:workflow。固定提醒 jobParams 为包含 title、content 的 JSON 字符串；接收人由服务端绑定为创建者，后续编辑不得更换接收人；通知显示在接收人的铃铛中，不是公开公告", Enforced: true})
 	RegisterRule(RuleDef{Scope: "sys_job", Rule: "定时创建公开通知公告使用 system:createNotice，参数 noticeTitle、noticeContent、noticeType（1通知或2公告）、status（0正常或1停用），每次执行新增一条；创建、修改、启用和手动执行此任务还需要 system:notice:add 权限", Enforced: true})
 	RegisterRule(RuleDef{Scope: "sys_job", Rule: "jobGroup 是执行队列，只能使用 DEFAULT、critical、low；普通任务和公共公告任务使用 DEFAULT。历史字典 SYSTEM 是 DEFAULT 的兼容别名，不是独立队列；公告公开范围不决定队列，不要使用 PUBLIC 或任意业务分组", Enforced: true})
 }
+func init() {
+	RegisterRule(RuleDef{Scope: "*", Rule: "自由筛选、关联和统计可使用 automation.sql.schema 与 automation.sql.query；适用于所有 AI 对话，不能仅根据定时处理器目录判断是否支持。SQL 只读且不暴露凭据字段。", Enforced: true})
+	RegisterRule(RuleDef{Scope: "*", Rule: "system.notification.send 给当前用户发送个人通知；automation.flow.query 组合只读查询，automation.flow.run 组合查询和业务操作，写操作须预演确认。参数可用 ${步骤名.rows.0.count} 引用只读结果，支持 ${today}/${yesterday}/${tomorrow}/${now} 动态时间变量。", Enforced: true})
+	RegisterRule(RuleDef{Scope: "sys_job", Rule: "system:workflow 复用通用流程，jobParams={flow:{steps:[{name,capability,args}],timeZone}}；身份权限由服务端绑定，每次运行重新检查当前权限和计算时间变量，不能保存一次查询的结果充当每日统计。", Enforced: true})
+}
+
 func (s *Service) Invalidate() { s.mu.Lock(); s.expires = time.Time{}; s.mu.Unlock() }
 func (s *Service) loadEnums(ctx context.Context) ([]EnumDef, error) {
 	s.mu.Lock()

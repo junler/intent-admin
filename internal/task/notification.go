@@ -38,6 +38,11 @@ func (r *Runtime) PrepareJob(ctx context.Context, j *Job, previous *Job) error {
 		return err
 	}
 	j.CronExpression = expression
+	if j.InvokeTarget == WorkflowHandler {
+		if err := r.prepareWorkflow(ctx, j, previous); err != nil {
+			return err
+		}
+	}
 	if j.InvokeTarget == NotificationHandler {
 		a, ok := capability.ActorFrom(ctx)
 		if !ok || a.UserID <= 0 {
@@ -83,6 +88,7 @@ func (r *Runtime) PrepareJob(ctx context.Context, j *Job, previous *Job) error {
 }
 
 func (r *Runtime) registerNotificationCapability() {
+	notification.New(r.DB).RegisterCapabilities()
 	capability.Register(capability.Capability[NotificationParams, capability.Empty]{
 		Meta: capability.Meta{Name: "task.system.notifyUser", Summary: "投递定时个人系统通知", Perm: "monitor:job:edit", Risk: capability.RiskMedium, Mutating: true, AIEnabled: false, MCPEnabled: false, LogTitle: "定时通知", BizType: capability.BizCreate},
 		Fn: func(ctx context.Context, in NotificationParams) (capability.Empty, error) {
@@ -94,10 +100,10 @@ func (r *Runtime) registerNotificationCapability() {
 			if _, err := notificationParams(raw); err != nil {
 				return capability.Empty{}, err
 			}
-			m, err := notification.New(r.DB).PublishMessage(ctx, in.RecipientID, in.Title, in.Content, "/monitor/job")
-			if err == nil {
-				capability.RecorderFrom(ctx).Create("sys_notification", m.ID, m.Title, map[string]any{"user_id": m.UserID, "title": m.Title, "content": m.Content, "link": m.Link})
-			}
+			actor := *a
+			actor.UserID = in.RecipientID
+			args, _ := json.Marshal(notification.SendInput{Title: in.Title, Content: in.Content})
+			_, err := capability.InvokeJSON(capability.WithActor(ctx, &actor), "system.notification.send", args)
 			return capability.Empty{}, err
 		},
 		DryRun: func(ctx context.Context, in NotificationParams) (*capability.Preview, error) {

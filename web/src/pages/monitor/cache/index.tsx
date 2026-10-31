@@ -1,3 +1,4 @@
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   Button,
@@ -55,6 +56,7 @@ export default function Cache() {
     void loadKeys();
     setValue(undefined);
   }, [name]);
+  usePageRefresh(() => Promise.all([load(), loadKeys()]));
   async function show(key: string) {
     const result = await api.get<Row>('/monitor/cache/value', {
       cacheName: name,

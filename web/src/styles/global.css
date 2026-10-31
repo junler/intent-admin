@@ -153,14 +153,13 @@ body {
 }
 .intent-omnibox {
   --omnibox-edge: #e4eaf3;
-  --omnibox-ink: #7b8798;
   position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
   width: min(100%, 360px);
   height: 38px;
-  padding-inline: 13px 6px;
+  padding-inline: 4px;
   border: 1px solid var(--omnibox-edge);
   border-radius: 999px;
   background: #f6f8fc;
@@ -189,11 +188,15 @@ body {
 }
 .intent-omnibox-mark {
   flex: none;
-  width: 15px;
-  height: 15px;
-  fill: #6366f1;
-  opacity: 0.75;
-  transition: opacity 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  background: #eaf1ff;
+  color: #2563eb;
+  font-size: 18px;
 }
 .intent-omnibox .ant-input {
   background: transparent;
@@ -217,7 +220,8 @@ body {
   cursor: not-allowed;
 }
 .intent-omnibox-disabled .intent-omnibox-mark {
-  fill: #b6bfcd;
+  background: #e9edf3;
+  color: #b6bfcd;
 }
 /* The chip names what the assistant will act on. It exists only when rows are
  * checked, so its presence is itself the signal. */
@@ -251,17 +255,24 @@ body {
 }
 .intent-omnibox-kbd {
   flex: none;
-  padding: 3px 7px;
-  border: 1px solid #e2e8f2;
-  border-bottom-width: 2px;
-  border-radius: 6px;
-  background: #fff;
-  color: var(--omnibox-ink);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 40px;
+  height: 28px;
+  padding-inline: 8px;
+  border: 0;
+  border-radius: 14px;
+  background: #eaf1ff;
+  color: #2563eb;
+  font-family: inherit;
   font-size: 11px;
   font-weight: 600;
-  line-height: 1.4;
-  letter-spacing: 0.04em;
+  line-height: 1;
+}
+.intent-omnibox-modifier {
+  font-size: 12px;
 }
 .intent-omnibox-send {
   flex: none;
@@ -350,14 +361,14 @@ body {
   flex: 1;
   flex-direction: column;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 .intent-ai-drawer .ant-drawer-body > * {
   flex-shrink: 0;
 }
 .intent-ai-drawer .intent-ai-messages {
-  flex: 1;
-  min-height: 120px;
+  flex: 1 1 0;
+  min-height: 0;
   overflow: auto;
   overflow-wrap: anywhere;
 }
@@ -625,7 +636,7 @@ body {
   color: #9aa6b5;
   font-size: 12px;
 }
-.intent-footer span + span {
+.intent-footer span + a {
   border-inline-start: 1px solid #dce2eb;
   padding-inline-start: 12px;
 }
@@ -1297,9 +1308,49 @@ body {
 }
 
 /* Portal-mounted so the global AI entry stays above business dialog masks. */
-.intent-ai-floating-entry {
+.ant-btn.intent-ai-floating-entry {
+  position: fixed;
   right: max(24px, env(safe-area-inset-right));
   bottom: max(24px, env(safe-area-inset-bottom));
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  padding: 6px 18px 6px 6px;
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+  background: #fff;
+  color: var(--intent-ink);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgb(23 43 77 / 10%);
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+.ant-btn.intent-ai-floating-entry:not(:disabled):hover {
+  border-color: #b6cdfa;
+  background: #fff;
+  color: #2563eb;
+  box-shadow: 0 6px 20px rgb(23 43 77 / 14%);
+}
+.intent-ai-floating-entry:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 4px;
+}
+.intent-ai-floating-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #eff5ff;
+  color: #2563eb;
+  font-size: 21px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ant-btn.intent-ai-floating-entry {
+    transition: none;
+  }
 }
 .intent-ai-navigation-toast {
   margin-bottom: 72px;

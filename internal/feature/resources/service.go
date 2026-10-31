@@ -291,6 +291,9 @@ func (s *Service) vault(ctx context.Context, column, before, after string) (stri
 	return s.vaultGuard(ctx, column, before, after, false)
 }
 func (s *Service) vaultGuard(ctx context.Context, column, before, after string, force bool) (string, error) {
+	if !capability.RecordsHistory() {
+		return "", nil
+	}
 	if before == after && !force {
 		return "", nil
 	}

@@ -23,6 +23,8 @@ export interface Field {
   hidden?: boolean;
   createOnly?: boolean;
   defaultValue?: unknown;
+  /** Suggested AI draft value; applied only to empty controls. */
+  aiDefaultValue?: unknown;
   treeData?: any[];
   options?: { label: string; value: any }[];
   rules?: any[];

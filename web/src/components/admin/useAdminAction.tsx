@@ -1,9 +1,7 @@
-import { history } from '@umijs/max';
-import { App, Button, Space } from 'antd';
+import { App } from 'antd';
 import { useRef, useState } from 'react';
 import { usePageActive } from '@/contexts/ActivePageContext';
 import { invalidateDicts } from '@/hooks/useDict';
-import { usePerm } from '@/hooks/usePerm';
 import { t } from '@/i18n';
 import { ApiError, Code, request } from '@/utils/request';
 import type { Row } from './types';
@@ -20,7 +18,6 @@ interface Command {
 }
 export function useAdminAction(after?: () => void, onClosed?: () => void) {
   const active = usePageActive();
-  const canViewChanges = usePerm('system:changeset:list');
   const { message } = App.useApp();
   const pending = useRef(false);
   const [executing, setExecuting] = useState(false);
@@ -45,28 +42,7 @@ export function useAdminAction(after?: () => void, onClosed?: () => void) {
       )
         window.dispatchEvent(new Event('intent-admin:permissions-changed'));
       command.result?.(value);
-      const changesetId = (value as Row | undefined)?.changesetId;
-      message.success({
-        duration: changesetId ? 8 : 3,
-        content: (
-          <Space>
-            {t('操作成功')}
-            {changesetId && canViewChanges && (
-              <Button
-                type="link"
-                size="small"
-                onClick={() =>
-                  history.push(
-                    `/changesets?changesetId=${encodeURIComponent(changesetId)}`,
-                  )
-                }
-              >
-                {t('查看变更')}
-              </Button>
-            )}
-          </Space>
-        ),
-      });
+      message.success(t('操作成功'));
       command.after?.();
       after?.();
     } catch (error) {

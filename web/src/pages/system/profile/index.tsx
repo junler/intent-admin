@@ -1,3 +1,4 @@
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 import { UploadOutlined, UserOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { history } from '@umijs/max';
@@ -70,6 +71,7 @@ export default function Profile() {
   useEffect(() => {
     void load().catch(() => {});
   }, []);
+  usePageRefresh(load);
   const action = useAdminAction(() => {
     void load().catch(() => {});
     useUserStore.getState().reset();

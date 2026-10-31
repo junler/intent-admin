@@ -31,7 +31,13 @@ export default function Tokens() {
         })
       }
       fields={[
-        { name: 'name', label: t('名称'), required: true, search: true },
+        {
+          name: 'name',
+          label: t('名称'),
+          required: true,
+          search: true,
+          aiDefaultValue: t('个人访问令牌'),
+        },
         { name: 'prefix', label: t('令牌前缀'), form: false },
         {
           name: 'scopes',
@@ -47,7 +53,12 @@ export default function Tokens() {
           options: riskOptions,
           defaultValue: 'low',
         },
-        { name: 'expiresAt', label: t('过期时间'), type: 'date' },
+        {
+          name: 'expiresAt',
+          label: t('过期时间'),
+          type: 'date',
+          help: t('留空表示不过期。'),
+        },
         { name: 'lastUsedAt', label: t('最近使用'), form: false },
         { name: 'createTime', label: t('创建时间'), form: false },
       ]}

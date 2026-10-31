@@ -311,3 +311,39 @@ func TestUserFormHandoffDoesNotPersistPasswordOrCreateAPlan(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultFormRequestFillsBeforeModelCanAskForConfirmation(t *testing.T) {
+	s, _ := sessionService(t)
+	cm := &fixedModel{messages: []*schema.Message{schema.AssistantMessage("请先确认授权范围和过期时间", nil)}}
+	s.models = fixedProvider{cm: cm}
+	s.Navigation = fixedNavigation{}
+	a := &capability.Actor{UserID: 1, Source: capability.SourceAI, MaxRisk: capability.RiskLow}
+	ctx := capability.WithActor(context.Background(), a)
+	request := "请帮我新增“个人访问令牌”表单"
+	se, err := s.newSession(ctx, 1, request, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fills := 0
+	err = s.run(ctx, a, se, ChatInput{Message: request, PageContext: map[string]any{
+		"focusedForm": map[string]any{"formId": "ui.token", "title": "个人访问令牌", "mode": "create", "route": "/system/user"},
+		"forms":       []map[string]any{{"name": "ui.token", "route": "/system/user", "mode": "create", "fields": []string{"name", "maxRisk", "scopes", "expiresAt"}, "required": []string{"name"}, "defaults": map[string]any{"name": "个人访问令牌", "maxRisk": "low"}}},
+	}}, func(kind string, data any) {
+		if kind == "form_fill" {
+			fills++
+		}
+		if kind == "plan" || kind == "navigate" {
+			t.Fatalf("unexpected %s", kind)
+		}
+	})
+	if err != nil || fills != 1 || cm.index != 0 {
+		t.Fatalf("default fill deferred to a confirmation: fills=%d modelCalls=%d error=%v", fills, cm.index, err)
+	}
+	saved, err := s.loadSession(ctx, 1, se.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Messages) != 2 || saved.Messages[0].Role != "user" || saved.Messages[1].Content != "已填充表单，请检查后确认提交；尚未保存。" {
+		t.Fatalf("incorrect direct-fill transcript: %+v", saved.Messages)
+	}
+}

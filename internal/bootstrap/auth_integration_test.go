@@ -59,6 +59,16 @@ func TestAuthenticationIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := app.Router()
+	for _, route := range router.Routes() {
+		if strings.Contains(route.Path, "/approvals") || strings.HasSuffix(route.Path, "/approval") || strings.Contains(route.Path, "/approval-reviewers") || strings.Contains(route.Path, "/system/changeset") || strings.Contains(route.Path, "/system/audit") {
+			t.Fatalf("retired endpoint is still mounted: %s %s", route.Method, route.Path)
+		}
+	}
+	for _, name := range []string{"system.changeset.list", "system.changeset.get", "system.changeset.rollback", "system.auditTrail.list"} {
+		if _, ok := capability.Lookup(name); ok {
+			t.Fatalf("retired capability still available to adapters: %s", name)
+		}
+	}
 	ctx := context.Background()
 	t.Cleanup(func() {
 		var cursor uint64

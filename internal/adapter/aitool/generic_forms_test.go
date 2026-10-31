@@ -102,3 +102,26 @@ func TestLocalFormManifestOnlyFillsDeclaredControls(t *testing.T) {
 		t.Fatal("local form ignored permission revocation")
 	}
 }
+
+func TestEmptyFormWithoutDefaultsDoesNotClaimSuccess(t *testing.T) {
+	ctx := capability.WithActor(context.Background(), &capability.Actor{UserID: 1, Source: capability.SourceAI})
+	kit := &Tools{Navigation: formPages{}, PageContext: map[string]any{"forms": []uiForm{{Name: "ui.empty", Route: "/test/form", Fields: []string{"name", "password"}, Defaults: map[string]any{"password": "never-default"}}}}, Emit: func(string, any) { t.Fatal("empty fill emitted an event") }}
+	if _, err := kit.FillForm(ctx, FormInput{Name: "ui.empty", Values: map[string]any{}}); err == nil || kit.FilledForm.Load() {
+		t.Fatal("empty form falsely reported as filled")
+	}
+}
+
+func TestFocusedEditorKeepsItsRecordIdentity(t *testing.T) {
+	ctx := capability.WithActor(context.Background(), &capability.Actor{UserID: 1, Source: capability.SourceAI})
+	kit := &Tools{Navigation: formPages{}, PageContext: map[string]any{
+		"focusedForm": map[string]any{"formId": "ui.editor7", "mode": "update", "route": "/test/form", "recordId": "7"},
+		"forms":       []uiForm{{Name: "ui.editor7", Mode: "update", Route: "/test/form", Fields: []string{"name"}}},
+	}}
+	desc := FormDescriptor{Route: "/test/form", Mode: "update"}
+	if kit.focusedUIForm(ctx, desc, "42") != "" {
+		t.Fatal("redirected another record into current editor")
+	}
+	if kit.focusedUIForm(ctx, desc, "7") != "ui.editor7" {
+		t.Fatal("current record editor was not reused")
+	}
+}
