@@ -1,29 +1,45 @@
+import { DeleteOutlined, MoreOutlined } from '@ant-design/icons';
 import { history } from '@umijs/max';
 import {
   Alert,
   App,
   Button,
   Drawer,
+  Dropdown,
   Empty,
   Input,
   Select,
   Space,
   Spin,
-  Tag,
   Typography,
 } from 'antd';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { create } from 'zustand';
 import type { Evidence } from '@/api/types';
+import { Loading } from '@/components/common/Loading';
 import { usePerm } from '@/hooks/usePerm';
+import { useUiForms } from '@/hooks/useAiForm';
 import { getLocale, t } from '@/i18n';
 import { usePageContextStore } from '@/stores/pageContext';
+import { useUserStore } from '@/stores/user';
+import { useFormDraftStore, type DraftTarget } from '@/stores/formDraft';
+import { hasPermission } from '@/utils/permission';
 import { api } from '@/utils/request';
 import { type StreamEvent, streamChat } from '@/utils/sse';
 import { type Plan, PlanCard } from './PlanCard';
-import { evidenceURL } from './state';
+import { PageSuggestions } from './PageSuggestions';
+import { createChatNavigation } from './navigation';
+import { useAiPanel, type FormFocus } from './panelState';
+export { useAiPanel } from './panelState';
+
+const markdownComponents: Components = {
+  table: ({ children }) => (
+    <div className="intent-markdown-table">
+      <table>{children}</table>
+    </div>
+  ),
+};
 
 interface ChatMessage {
   id: string;
@@ -33,6 +49,7 @@ interface ChatMessage {
   plan?: Plan;
   planUnavailable?: boolean;
   evidence?: Evidence[];
+  navigated?: boolean;
 }
 interface Session {
   id: string;
@@ -47,24 +64,28 @@ interface Models {
   models: string[];
   isDefault: boolean;
 }
-interface PanelState {
-  open: boolean;
-  request?: { id: number; text?: string; sessionId?: string };
-  show: (text?: string, sessionId?: string) => void;
-  close: () => void;
-}
 interface ActiveRun {
   id: number;
   controller: AbortController;
   sessionId?: string;
 }
-let commandId = 0;
-export const useAiPanel = create<PanelState>((set) => ({
-  open: false,
-  show: (text, sessionId) =>
-    set({ open: true, request: { id: ++commandId, text, sessionId } }),
-  close: () => set({ open: false }),
-}));
+// The data-sharing notice is a disclosure, not a warning: it earns the space
+// once per browser, then collapses out of the way.
+const NOTICE_KEY = 'intent-admin:ai-notice-read';
+function noticeRead(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(NOTICE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function markNoticeRead() {
+  try {
+    globalThis.localStorage?.setItem(NOTICE_KEY, '1');
+  } catch {
+    /* Private browsing just shows the notice again next time. */
+  }
+}
 
 function evidence(value: unknown): Evidence[] {
   return Array.isArray(value)
@@ -85,6 +106,7 @@ export function AiPanel() {
   const [models, setModels] = useState<Models[]>([]);
   const [model, setModel] = useState<string>();
   const [text, setText] = useState('');
+  const [formFocus, setFormFocus] = useState<FormFocus>();
   const [busy, setBusy] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [tool, setTool] = useState('');
@@ -94,8 +116,13 @@ export function AiPanel() {
   const loadSequence = useRef(0);
   const handled = useRef(0);
   const bottom = useRef<HTMLDivElement>(null);
+  const composer = useRef<React.ComponentRef<typeof Input.TextArea>>(null);
   const allowed = usePerm('ai:agent:use');
-  const { message } = App.useApp();
+  const [notice, setNotice] = useState(() => !noticeRead());
+  const [composerFocus, setComposerFocus] = useState(false);
+  const sessionFieldId = useId();
+  const modelFieldId = useId();
+  const { message, modal, notification } = App.useApp();
   const refreshSessions = useCallback(
     () =>
       api
@@ -175,12 +202,12 @@ export function AiPanel() {
     setRestoring(false);
     setSessionId(undefined);
     setMessages([]);
-    setText('');
     setError('');
   }, [stopActive]);
   const loadSession = useCallback(
     async (id: string) => {
       stopActive();
+      setFormFocus(undefined);
       const load = ++loadSequence.current;
       setRestoring(true);
       setError('');
@@ -255,6 +282,8 @@ export function AiPanel() {
         sessionId,
       };
       active.current = run;
+      const focusedForm = formFocus;
+      setFormFocus(undefined);
       setText('');
       setError('');
       setBusy(true);
@@ -270,6 +299,22 @@ export function AiPanel() {
             old.map((item) => (item.id === assistantId ? fn(item) : item)),
           );
       };
+      const navigation = createChatNavigation({
+        getMenus: () => useUserStore.getState().menus,
+        navigate: (url) => history.push(url),
+        close,
+        notify: (title) =>
+          notification.success({
+            title: t('已打开{page}', { page: t(title) }),
+            placement: 'bottomRight',
+            duration: 3,
+            role: 'status',
+            className: 'intent-ai-navigation-toast',
+          }),
+      });
+      let pendingForm:
+        | { owner: number; values: unknown; target: DraftTarget }
+        | undefined;
       function onEvent(event: StreamEvent) {
         if (!current()) return;
         if (event.type === 'start') {
@@ -295,8 +340,46 @@ export function AiPanel() {
             planId: String(event.id),
             plan: event as unknown as Plan,
           }));
-        else if (event.type === 'navigate') {
-          const url = evidenceURL({
+        else if (event.type === 'form_fill') {
+          const identity = useUserStore.getState().identity;
+          const route = String(event.route ?? '');
+          const permission =
+            typeof event.permission === 'string'
+              ? event.permission
+              : 'system:user:add';
+          const mode =
+            event.mode === 'update' || event.mode === 'action'
+              ? event.mode
+              : 'create';
+          if (!identity || !hasPermission(identity.permissions, permission)) {
+            setError(t('表单不存在或无权填写'));
+            return;
+          }
+          const url = navigation.request({ route });
+          if (!url) {
+            setError(t('页面不存在或无权访问'));
+            return;
+          }
+          pendingForm = {
+            owner: identity.user.userId,
+            values: event.values,
+            target: {
+              route,
+              mode,
+              formId:
+                typeof event.formId === 'string' ? event.formId : undefined,
+              path: String(event.path ?? route),
+              recordId: String(event.recordId ?? ''),
+              permission,
+            },
+          };
+          update((item) => ({
+            ...item,
+            navigated: true,
+            content: t('已打开并填写表单，请检查后确认提交；尚未保存。'),
+          }));
+        } else if (event.type === 'navigate') {
+          const url = navigation.request({
             route: String(event.route ?? ''),
             filters:
               event.filters && typeof event.filters === 'object'
@@ -304,16 +387,41 @@ export function AiPanel() {
                 : undefined,
           });
           if (url) {
-            history.push(url);
             update((item) => ({
               ...item,
               content: String(event.note ?? t('已打开筛选后的页面')),
               evidence: [{ route: url }],
+              navigated: true,
             }));
+          } else {
+            setError(t('页面不存在或无权访问'));
           }
-        } else if (event.type === 'error')
+        } else if (event.type === 'error') {
+          navigation.cancel();
+          pendingForm = undefined;
           setError(String(event.message ?? t('生成失败')));
-        else if (event.type === 'done') void refreshSessions();
+        } else if (event.type === 'done') {
+          void refreshSessions();
+          if (pendingForm) {
+            const identity = useUserStore.getState().identity;
+            if (
+              identity?.user.userId !== pendingForm.owner ||
+              !hasPermission(
+                identity.permissions,
+                pendingForm.target.permission ?? '',
+              )
+            ) {
+              pendingForm = undefined;
+              navigation.cancel();
+              return;
+            }
+            useFormDraftStore
+              .getState()
+              .stage(pendingForm.owner, pendingForm.values, pendingForm.target);
+            pendingForm = undefined;
+          }
+          navigation.complete();
+        }
       }
       try {
         await streamChat(
@@ -321,7 +429,11 @@ export function AiPanel() {
             sessionId: run.sessionId,
             model,
             message: input,
-            pageContext: usePageContextStore.getState().context,
+            pageContext: {
+              ...usePageContextStore.getState().context,
+              focusedForm,
+              forms: Object.values(useUiForms.getState().forms).slice(0, 40),
+            },
             locale: getLocale(),
           },
           onEvent,
@@ -338,80 +450,171 @@ export function AiPanel() {
         }
       }
     },
-    [allowed, restoring, message, sessionId, model, refreshSessions],
+    [
+      allowed,
+      restoring,
+      message,
+      notification,
+      sessionId,
+      model,
+      refreshSessions,
+      close,
+      formFocus,
+    ],
   );
 
   useEffect(() => {
     if (!incoming || incoming.id === handled.current || !allowed) return;
     handled.current = incoming.id;
-    if (incoming.sessionId) void loadSession(incoming.sessionId);
+    if (incoming.draft !== undefined) {
+      setText(incoming.draft);
+      setFormFocus(incoming.form);
+      composer.current?.focus();
+    } else if (incoming.sessionId) void loadSession(incoming.sessionId);
     else if (incoming.text) void send(incoming.text);
     else newConversation();
   }, [incoming, allowed, loadSession, send, newConversation]);
 
   return (
     <Drawer
-      title={t('Intent 助手')}
+      className="intent-ai-drawer"
+      zIndex={incoming?.layer ?? 1800}
+      placement="right"
+      size="min(640px, 100vw)"
+      mask={{ closable: true }}
       open={open}
+      aria-label={t('AI 会话')}
+      afterOpenChange={(visible) => {
+        if (visible && allowed) composer.current?.focus();
+      }}
       onClose={() => {
         stopActive();
         loadSequence.current++;
         close();
       }}
-      width={760}
-      extra={<Button onClick={newConversation}>{t('新会话')}</Button>}
+      title={
+        <div className="intent-ai-drawer-title">
+          {allowed && (
+            <div className="intent-ai-controls">
+              <div className="intent-ai-field">
+                <label
+                  className="intent-ai-field-label"
+                  htmlFor={sessionFieldId}
+                >
+                  {t('历史会话')}
+                </label>
+                <Select
+                  id={sessionFieldId}
+                  placeholder={t('新的会话')}
+                  value={sessionId}
+                  popupMatchSelectWidth={false}
+                  allowClear
+                  options={sessions.map((session) => ({
+                    value: session.id,
+                    label: session.title,
+                  }))}
+                  onChange={(id) =>
+                    id ? void loadSession(id) : newConversation()
+                  }
+                />
+              </div>
+              <div className="intent-ai-field">
+                <label className="intent-ai-field-label" htmlFor={modelFieldId}>
+                  {t('模型')}
+                </label>
+                <Select
+                  id={modelFieldId}
+                  placeholder={t('选择模型')}
+                  value={model}
+                  showSearch
+                  optionFilterProp="label"
+                  // Provider/model pairs run long; let the menu outgrow the box
+                  // instead of truncating every name.
+                  popupMatchSelectWidth={false}
+                  options={models.flatMap((provider) =>
+                    [
+                      ...new Set(
+                        provider.models?.length
+                          ? provider.models
+                          : [provider.defaultModel],
+                      ),
+                    ].map((name) => ({
+                      value: `${provider.providerId}:${name}`,
+                      label: `${provider.name} / ${name}`,
+                    })),
+                  )}
+                  onChange={setModel}
+                  disabled={busy || restoring}
+                />
+              </div>
+            </div>
+          )}
+          <Space className="intent-ai-actions">
+            <Button onClick={newConversation}>{t('新会话')}</Button>
+            {/* Deleting a session is destructive and irreversible, so it lives
+              here behind a confirm rather than next to the send button. */}
+            <Dropdown
+              trigger={['click']}
+              disabled={!sessionId || busy || restoring}
+              menu={{
+                items: [
+                  {
+                    key: 'delete',
+                    danger: true,
+                    icon: <DeleteOutlined />,
+                    label: t('删除会话'),
+                    onClick: () =>
+                      modal.confirm({
+                        title: t('删除这个会话？'),
+                        content: t('会话记录会被移除，已执行的变更不受影响。'),
+                        okText: t('删除会话'),
+                        okButtonProps: { danger: true },
+                        cancelText: t('取消'),
+                        onOk: async () => {
+                          await api.del(`/ai/sessions/${sessionId}`);
+                          newConversation();
+                          await refreshSessions();
+                          message.success(t('会话已删除'));
+                        },
+                      }),
+                  },
+                ],
+              }}
+            >
+              <Button
+                icon={<MoreOutlined />}
+                aria-label={t('会话操作')}
+                disabled={!sessionId || busy || restoring}
+              />
+            </Dropdown>
+          </Space>
+        </div>
+      }
     >
-      <Alert
-        type="info"
-        showIcon
-        title={t('数据发送提示')}
-        description={t(
-          '会话内容和查询到的业务数据会发送给你配置的模型服务商。写操作会先展示计划与差异，确认后执行。',
-        )}
-        className="mb-4"
-      />
+      {notice && (
+        <Alert
+          type="info"
+          showIcon
+          closable
+          onClose={() => {
+            markNoticeRead();
+            setNotice(false);
+          }}
+          title={t('数据发送提示')}
+          description={t(
+            '会话内容和查询到的业务数据会发送给你配置的模型服务商。写操作会先展示计划与差异，确认后执行。',
+          )}
+          className="mb-4"
+        />
+      )}
       {!allowed ? (
         <Empty description={t('当前账号没有使用 AI 的权限')} />
       ) : (
         <>
-          <Space wrap className="mb-4 w-full">
-            <Select
-              placeholder={t('历史会话')}
-              value={sessionId}
-              allowClear
-              className="w-52"
-              options={sessions.map((session) => ({
-                value: session.id,
-                label: session.title,
-              }))}
-              onChange={(id) => (id ? void loadSession(id) : newConversation())}
-            />
-            <Select
-              placeholder={t('选择模型')}
-              value={model}
-              showSearch
-              optionFilterProp="label"
-              className="w-72"
-              options={models.flatMap((provider) =>
-                [
-                  ...new Set(
-                    provider.models?.length
-                      ? provider.models
-                      : [provider.defaultModel],
-                  ),
-                ].map((name) => ({
-                  value: `${provider.providerId}:${name}`,
-                  label: `${provider.name} / ${name}`,
-                })),
-              )}
-              onChange={setModel}
-              disabled={busy || restoring}
-            />
-          </Space>
           {restoring ? (
-            <Spin tip={t('正在恢复会话与计划')} />
+            <Loading panel tip={t('正在恢复会话与计划')} />
           ) : (
-            <div className="min-h-40 space-y-5">
+            <div className="intent-ai-messages space-y-5">
               {messages
                 .filter(
                   (item) =>
@@ -421,14 +624,16 @@ export function AiPanel() {
                   <section
                     key={item.id}
                     className={
-                      item.role === 'user' ? 'rounded-lg bg-blue-50 p-3' : 'p-2'
+                      item.role === 'user'
+                        ? 'intent-ai-message intent-ai-message-user'
+                        : 'intent-ai-message intent-ai-message-assistant'
                     }
                   >
-                    <Tag color={item.role === 'user' ? 'blue' : 'purple'}>
-                      {item.role === 'user' ? t('你') : 'Intent'}
-                    </Tag>
-                    <div className="prose max-w-none text-sm">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <div className="intent-markdown">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={markdownComponents}
+                      >
                         {item.content}
                       </ReactMarkdown>
                     </div>
@@ -436,6 +641,10 @@ export function AiPanel() {
                       <PlanCard
                         key={item.plan.id}
                         initialPlan={item.plan}
+                        onNavigate={() => {
+                          stopActive();
+                          close();
+                        }}
                         onUpdated={(plan) =>
                           setMessages((old) =>
                             old.map((entry) =>
@@ -463,30 +672,14 @@ export function AiPanel() {
                         }
                       />
                     )}
-                    {!!item.evidence?.length && (
-                      <Space wrap className="mt-2">
-                        {[
-                          ...new Set(
-                            item.evidence
-                              .map(evidenceURL)
-                              .filter((url): url is string => !!url),
-                          ),
-                        ].map((url) => {
-                          return (
-                            url && (
-                              <Button
-                                key={url}
-                                size="small"
-                                type="link"
-                                onClick={() => history.push(url)}
-                              >
-                                {t('核对数据：')}
-                                {url.split('?')[0]}
-                              </Button>
-                            )
-                          );
-                        })}
-                      </Space>
+                    {!item.navigated && !!item.evidence?.length && (
+                      <PageSuggestions
+                        evidence={item.evidence}
+                        onNavigate={() => {
+                          stopActive();
+                          close();
+                        }}
+                      />
                     )}
                   </section>
                 ))}
@@ -504,47 +697,48 @@ export function AiPanel() {
           {error && (
             <Alert type="error" showIcon title={error} className="my-3" />
           )}
-          <Input.TextArea
-            value={text}
-            disabled={restoring}
-            onChange={(event) => setText(event.target.value)}
-            placeholder={t(
-              '输入意图，例如：把选中的用户停用（Shift+Enter 换行）',
-            )}
-            autoSize={{ minRows: 2, maxRows: 6 }}
-            className="mt-4"
-            onPressEnter={(event) => {
-              if (!event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault();
-                void send(text);
-              }
-            }}
-          />
-          <Space wrap className="mt-3">
-            <Button
-              type="primary"
-              disabled={!text.trim() || !models.length || restoring}
-              loading={busy}
-              onClick={() => void send(text)}
-            >
-              {t('发送')}
-            </Button>
-            {busy && <Button onClick={() => stopActive()}>{t('停止')}</Button>}
-            {sessionId && (
+          {/* One composer surface, matching the header command bar: the field
+              and its actions read as a single control. */}
+          <div
+            className={`intent-ai-composer mt-4${composerFocus ? ' intent-ai-composer-focused' : ''}`}
+          >
+            <Input.TextArea
+              ref={composer}
+              value={text}
+              disabled={restoring}
+              variant="borderless"
+              onChange={(event) => setText(event.target.value)}
+              onFocus={() => setComposerFocus(true)}
+              onBlur={() => setComposerFocus(false)}
+              placeholder={t('描述你的意图，例如：停用选中的用户')}
+              autoSize={{ minRows: 2, maxRows: 6 }}
+              onPressEnter={(event) => {
+                if (!event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  void send(text);
+                }
+              }}
+            />
+            <div className="intent-ai-composer-actions">
+              <span className="intent-ai-composer-hint">
+                {t('Enter 发送 · Shift+Enter 换行')}
+              </span>
+              {busy && (
+                <Button size="small" onClick={() => stopActive()}>
+                  {t('停止')}
+                </Button>
+              )}
               <Button
-                danger
-                disabled={busy || restoring}
-                onClick={async () => {
-                  await api.del(`/ai/sessions/${sessionId}`);
-                  newConversation();
-                  await refreshSessions();
-                  message.success(t('会话已删除'));
-                }}
+                type="primary"
+                size="small"
+                disabled={!text.trim() || !models.length || restoring}
+                loading={busy}
+                onClick={() => void send(text)}
               >
-                {t('删除会话')}
+                {t('发送')}
               </Button>
-            )}
-          </Space>
+            </div>
+          </div>
           {!models.length && (
             <Alert
               type="warning"

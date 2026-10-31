@@ -1,3 +1,4 @@
+import { DetailDialog } from '@/components/common/DetailDialog';
 import {
   type ActionType,
   PageContainer,
@@ -10,11 +11,9 @@ import {
   Button,
   Collapse,
   Descriptions,
-  Drawer,
   Empty,
   Input,
   Space,
-  Spin,
   Table,
   Tabs,
   Tag,
@@ -23,6 +22,7 @@ import {
 import { useRef, useState } from 'react';
 import { type Risk, RiskColor, RiskLabel } from '@/api/types';
 import { managementURL } from '@/components/ai/state';
+import { Loading } from '@/components/common/Loading';
 import { usePageActive } from '@/contexts/ActivePageContext';
 import { t } from '@/i18n';
 import { api } from '@/utils/request';
@@ -220,7 +220,7 @@ export default function CapabilitiesPage() {
         columns={columns}
         scroll={{ x: 1450 }}
         search={{ labelWidth: 'auto' }}
-        pagination={{ pageSize: 20, showSizeChanger: true }}
+        pagination={{ pageSize: 20, showSizeChanger: true, hideOnSinglePage: true }}
         toolBarRender={() => [
           <Input.Search
             key="keyword"
@@ -256,7 +256,7 @@ export default function CapabilitiesPage() {
           };
         }}
       />
-      <Drawer
+      <DetailDialog
         title={selected?.summary ?? t('功能详情')}
         open={active && !!selected}
         onClose={() => setSelected(undefined)}
@@ -350,8 +350,8 @@ export default function CapabilitiesPage() {
             )}
           </>
         )}
-      </Drawer>
-      <Drawer
+      </DetailDialog>
+      <DetailDialog
         title={t('系统自省知识库')}
         open={active && knowledgeOpen}
         onClose={() => setKnowledgeOpen(false)}
@@ -361,7 +361,7 @@ export default function CapabilitiesPage() {
         }
       >
         {loadingKnowledge ? (
-          <Spin />
+          <Loading panel />
         ) : knowledge ? (
           <Tabs
             items={[
@@ -374,7 +374,7 @@ export default function CapabilitiesPage() {
                   <Table<EnumDef>
                     rowKey="dictType"
                     dataSource={knowledge.enums}
-                    pagination={{ pageSize: 10 }}
+                    pagination={{ pageSize: 10, hideOnSinglePage: true }}
                     columns={[
                       { title: t('字典'), dataIndex: 'dictType' },
                       { title: t('说明'), dataIndex: 'summary' },
@@ -472,7 +472,7 @@ export default function CapabilitiesPage() {
         ) : (
           <Empty description={t('无法加载知识库')} />
         )}
-      </Drawer>
+      </DetailDialog>
     </PageContainer>
   );
 }

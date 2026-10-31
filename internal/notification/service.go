@@ -36,10 +36,18 @@ func (Message) TableName() string { return "sys_notification" }
 // Publish joins the workflow transaction. A rolled-back approval never leaves
 // a notification claiming it succeeded. Links are always local page routes.
 func (s *Service) Publish(ctx context.Context, userID int64, title, content, link string) error {
+	_, err := s.PublishMessage(ctx, userID, title, content, link)
+	return err
+}
+
+// PublishMessage returns the stored message so capability callers can record it.
+func (s *Service) PublishMessage(ctx context.Context, userID int64, title, content, link string) (Message, error) {
 	if userID <= 0 || title == "" || !strings.HasPrefix(link, "/") || strings.HasPrefix(link, "//") || strings.ContainsAny(link, "\\\r\n") {
-		return errcode.BadRequestf("通知参数无效")
+		return Message{}, errcode.BadRequestf("通知参数无效")
 	}
-	return dbx.DBFrom(ctx, s.db).Create(&Message{ID: uuid.NewString(), UserID: userID, Title: title, Content: content, Link: link, CreateTime: time.Now()}).Error
+	m := Message{ID: uuid.NewString(), UserID: userID, Title: title, Content: content, Link: link, CreateTime: time.Now()}
+	err := dbx.DBFrom(ctx, s.db).Create(&m).Error
+	return m, err
 }
 
 func principal(ctx context.Context) (*capability.Actor, error) {

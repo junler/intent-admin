@@ -1,3 +1,4 @@
+import dayjs from 'dayjs';
 import type { Row } from './types';
 export function deletionArgs(idKey: string, ids: unknown[]): Row {
   return {
@@ -77,4 +78,63 @@ export function writeFormValues(
       values[field.name] = JSON.parse(values[field.name]);
   }
   return values;
+}
+
+/** Only actual editable form fields may be prefilled; hidden IDs and server fields stay protected. */
+export function fillableValues(
+  fields: import('./types').Field[],
+  input: Row,
+  editing: boolean,
+): Row {
+  const values: Row = {};
+  for (const field of fields) {
+    if (
+      field.hidden ||
+      field.form === false ||
+      (editing && field.createOnly) ||
+      !Object.hasOwn(input, field.name)
+    )
+      continue;
+    const value = input[field.name];
+    if (field.type === 'json')
+      values[field.name] =
+        typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    else if (field.type === 'date') {
+      if (
+        (typeof value === 'string' || typeof value === 'number') &&
+        dayjs(value).isValid()
+      )
+        values[field.name] = dayjs(value);
+    } else if (field.type === 'switch') {
+      if (typeof value === 'boolean') values[field.name] = value;
+    } else if (field.type === 'number') {
+      if (typeof value === 'number' && Number.isFinite(value))
+        values[field.name] = value;
+    } else if (field.type === 'multi' || field.type === 'tree') {
+      if (
+        Array.isArray(value) &&
+        value.every(
+          (item) => typeof item === 'string' || typeof item === 'number',
+        )
+      )
+        values[field.name] = value;
+    } else if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      value === null
+    )
+      values[field.name] = value;
+  }
+  return values;
+}
+
+export function matchesFormPath(pattern: string, actual: string): boolean {
+  const expected = pattern.split('/');
+  const parts = actual.split('/');
+  return (
+    expected.length === parts.length &&
+    expected.every((part, index) =>
+      part.startsWith(':') ? !!parts[index] : part === parts[index],
+    )
+  );
 }

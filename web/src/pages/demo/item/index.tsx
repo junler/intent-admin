@@ -8,7 +8,6 @@ import {
   Card,
   Form,
   Input,
-  Modal,
   Select,
   Space,
   Table,
@@ -18,11 +17,12 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import { useCallback, useEffect, useState } from 'react';
 import { Auth } from '@/components/auth/Auth';
+import { AiFormScope } from '@/components/ai/AiFormContext';
 
-import { DiffTable } from '@/components/diff/DiffTable';
+import { useAdminAction } from '@/components/admin/useAdminAction';
 import ImportDialog from '@/components/import/ImportDialog';
 import { usePerm } from '@/hooks/usePerm';
-import { usePreviewAction } from '@/hooks/usePreviewAction';
+import { useAiForm } from '@/hooks/useAiForm';
 import { t } from '@/i18n';
 import { usePageContext } from '@/stores/pageContext';
 import { api, download, type PageData } from '@/utils/request';
@@ -53,14 +53,20 @@ const statusLabel: Record<string, { text: string; color: string }> = {
  * Demo page: the end-to-end proof that the Capability layer works.
  *
  * It exercises everything Phase 0 delivers — a generated list endpoint, the
- * generated /preview endpoint feeding the shared DiffTable, a generated
- * /export endpoint, and page-context reporting that makes the rows
+ * direct page mutations through HTTP capabilities, a generated /export
+ * endpoint, and page-context reporting that makes the rows
  * AI-addressable. Real modules look exactly like this.
  */
 export default function DemoItemPage() {
   const canRemove = usePerm('demo:item:remove');
   const [form] = Form.useForm<Filters>();
   const [filters, setFilters] = useState<Filters>({});
+  useAiForm({
+    id: 'demo.item.search',
+    title: t('搜索'),
+    fields: ['name', 'category', 'status'],
+    fill: (values) => form.setFieldsValue(values),
+  });
   const [page, setPage] = useState({ pageNum: 1, pageSize: 10 });
   const [data, setData] = useState<PageData<DemoItem>>({
     rows: [],
@@ -98,28 +104,17 @@ export default function DemoItemPage() {
     visibleIds: data.rows.map((r) => r.itemId),
   });
 
-  const remove = usePreviewAction({
-    capability: 'demo.item.remove',
-    previewUrl: '/demo/item/remove/preview',
-    execute: (args) => {
-      const { itemIds } = args as { itemIds: number[] };
-      return api.del(`/demo/item/remove/${itemIds.join(',')}`);
-    },
-    onDone: () => {
-      setSelected([]);
-      void load();
-    },
+  const removeAction = useAdminAction(() => {
+    setSelected([]);
+    void load();
   });
-
-  const toggleStatus = usePreviewAction({
-    capability: 'demo.item.update',
-    previewUrl: '/demo/item/update/preview',
-    execute: (args) => {
-      const { itemId, status } = args as { itemId: number; status: string };
-      return api.put(`/demo/item/update/${itemId}`, { itemId, status });
-    },
-    onDone: () => void load(),
-  });
+  const remove = (itemIds: number[]) =>
+    removeAction.run({
+      title: t('删除'),
+      url: `/demo/item/remove/${itemIds.join(',')}`,
+      method: 'DELETE',
+    });
+  const toggleStatus = useAdminAction(() => void load());
 
   const columns: ColumnsType<DemoItem> = [
     { title: t('编号'), dataIndex: 'itemId', width: 80 },
@@ -155,8 +150,13 @@ export default function DemoItemPage() {
               size="small"
               onClick={() =>
                 void toggleStatus.run({
-                  itemId: row.itemId,
-                  status: row.status === '0' ? '1' : '0',
+                  title: row.status === '0' ? t('停用') : t('启用'),
+                  url: `/demo/item/update/${row.itemId}`,
+                  method: 'PUT',
+                  args: {
+                    itemId: row.itemId,
+                    status: row.status === '0' ? '1' : '0',
+                  },
                 })
               }
             >
@@ -168,7 +168,7 @@ export default function DemoItemPage() {
               type="link"
               size="small"
               danger
-              onClick={() => void remove.run({ itemIds: [row.itemId] })}
+              onClick={() => void remove([row.itemId])}
             >
               {t('删除')}
             </Button>
@@ -205,49 +205,57 @@ export default function DemoItemPage() {
         </Space>
       }
     >
-      <Form
-        form={form}
-        layout="inline"
-        className="mb-4"
-        onFinish={(values) => {
-          setFilters(values);
-          setPage((p) => ({ ...p, pageNum: 1 }));
+      <AiFormScope
+        value={{
+          title: t('搜索'),
+          mode: 'action',
+          formId: 'ui.demo.item.search',
         }}
       >
-        <Form.Item name="name" label={t('名称')}>
-          <Input placeholder={t('模糊匹配')} allowClear className="w-40" />
-        </Form.Item>
-        <Form.Item name="category" label={t('分类')}>
-          <Input placeholder={t('精确匹配')} allowClear className="w-32" />
-        </Form.Item>
-        <Form.Item name="status" label={t('状态')}>
-          <Select
-            allowClear
-            placeholder={t('全部')}
-            className="w-28"
-            options={[
-              { value: '0', label: t('正常') },
-              { value: '1', label: t('停用') },
-            ]}
-          />
-        </Form.Item>
-        <Form.Item>
-          <Space>
-            <Button type="primary" htmlType="submit">
-              {t('查询')}
-            </Button>
-            <Button
-              onClick={() => {
-                form.resetFields();
-                setFilters({});
-                setPage((p) => ({ ...p, pageNum: 1 }));
-              }}
-            >
-              {t('重置')}
-            </Button>
-          </Space>
-        </Form.Item>
-      </Form>
+        <Form
+          form={form}
+          layout="inline"
+          className="mb-4"
+          onFinish={(values) => {
+            setFilters(values);
+            setPage((p) => ({ ...p, pageNum: 1 }));
+          }}
+        >
+          <Form.Item name="name" label={t('名称')}>
+            <Input placeholder={t('模糊匹配')} allowClear className="w-40" />
+          </Form.Item>
+          <Form.Item name="category" label={t('分类')}>
+            <Input placeholder={t('精确匹配')} allowClear className="w-32" />
+          </Form.Item>
+          <Form.Item name="status" label={t('状态')}>
+            <Select
+              allowClear
+              placeholder={t('全部')}
+              className="w-28"
+              options={[
+                { value: '0', label: t('正常') },
+                { value: '1', label: t('停用') },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit">
+                {t('查询')}
+              </Button>
+              <Button
+                onClick={() => {
+                  form.resetFields();
+                  setFilters({});
+                  setPage((p) => ({ ...p, pageNum: 1 }));
+                }}
+              >
+                {t('重置')}
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </AiFormScope>
 
       {canRemove && selected.length > 0 && (
         <Space className="mb-3">
@@ -259,9 +267,7 @@ export default function DemoItemPage() {
             danger
             size="small"
             icon={<DeleteOutlined />}
-            onClick={() =>
-              void remove.run({ itemIds: selected.map((r) => r.itemId) })
-            }
+            onClick={() => void remove(selected.map((r) => r.itemId))}
           >
             {t('批量删除')}
           </Button>
@@ -283,6 +289,7 @@ export default function DemoItemPage() {
             : undefined
         }
         pagination={{
+          hideOnSinglePage: true,
           current: data.pageNum || page.pageNum,
           pageSize: data.pageSize || page.pageSize,
           total: data.total,
@@ -291,51 +298,6 @@ export default function DemoItemPage() {
           onChange: (pageNum, pageSize) => setPage({ pageNum, pageSize }),
         }}
       />
-
-      <PreviewModal
-        title={t('删除确认')}
-        action={remove}
-        okText={t('确认删除')}
-        danger
-      />
-      <PreviewModal
-        title={t('状态变更确认')}
-        action={toggleStatus}
-        okText={t('确认执行')}
-      />
     </Card>
-  );
-}
-
-function PreviewModal({
-  title,
-  action,
-  okText,
-  danger,
-}: {
-  title: string;
-  action: ReturnType<typeof usePreviewAction>;
-  okText: string;
-  danger?: boolean;
-}) {
-  const { state, confirm, close } = action;
-  return (
-    <Modal
-      title={title}
-      open={state.open}
-      onCancel={close}
-      onOk={() => void confirm()}
-      okText={okText}
-      cancelText={t('取消')}
-      okButtonProps={{ danger, loading: state.executing }}
-      confirmLoading={state.executing}
-      width={760}
-      destroyOnHidden
-    >
-      {state.loading && (
-        <Typography.Text type="secondary">{t('正在预演…')}</Typography.Text>
-      )}
-      {state.preview && <DiffTable preview={state.preview} />}
-    </Modal>
   );
 }

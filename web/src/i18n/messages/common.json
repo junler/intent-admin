@@ -175,5 +175,10 @@
   "重置用户密码": "Reset user password",
   "首页大盘": "Dashboard",
   "MCP OAuth 授权": "MCP OAuth authorization",
-  "AI 计划跨人审批": "AI plan approval"
+  "AI 计划跨人审批": "AI plan approval",
+  "页面不存在或无权访问": "Page not found or access denied",
+  "{title}：搜索表单": "{title}: search form",
+  "保存": "Save",
+  "搜索": "Search",
+  "确定": "Confirm"
 }

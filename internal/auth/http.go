@@ -210,13 +210,12 @@ func (s *Service) getInfo(c *gin.Context) {
 	response.OK(c, map[string]any{"user": user, "roles": snapshot.Roles, "permissions": snapshot.Permissions, "aiMaxRisk": s.effectiveRisk(user)})
 }
 func (s *Service) getRouters(c *gin.Context) {
-	actor, _ := capability.ActorFrom(c.Request.Context())
-	menus, err := s.identity.Menus(c.Request.Context())
+	routes, err := s.Routes(c.Request.Context())
 	if err != nil {
 		response.Fail(c, err)
 		return
 	}
-	response.OK(c, BuildRoutes(menus, actor.Perms))
+	response.OK(c, routes)
 }
 func (s *Service) refreshToken(c *gin.Context) {
 	id, _ := c.Get(sessionContextKey)

@@ -118,6 +118,13 @@ func New(cfg *config.Config) (*App, error) {
 	for _, w := range capability.Warnings() {
 		slog.Warn("Capability 提醒", "detail", w)
 	}
+	// A module whose table is not described leaves the model guessing about
+	// what its rows mean. Warn rather than fail: it degrades answer quality,
+	// not safety.
+	if missing := knowledge.CheckCoverage(); len(missing) > 0 {
+		slog.Warn("以下列表能力的实体未登记到知识库，AI 将不了解这些表的含义",
+			"capabilities", missing, "fix", "在 internal/knowledge 注册 EntityDef")
+	}
 	slog.Info("Capability 注册完成", "count", capability.Count())
 
 	return app, nil
@@ -149,7 +156,7 @@ func (a *App) installExecutor() error {
 }
 
 func (a *App) registerFeatures() error {
-	demo.Register(a.DB)
+	demo.Register(a.DB, a.Tasks)
 	a.System = system.Register(a.DB, a.Cache, a.Cfg)
 	a.System.OnDictionaryChange = a.Knowledge.Invalidate
 	a.Resources = resources.Register(a.DB, a.Cache, a.Cfg, a.Secret)
@@ -179,6 +186,7 @@ func (a *App) registerFeatures() error {
 	a.Tasks.RefreshDashboard = a.Dashboard.Warm
 	a.Tasks.RefreshKnowledge = func(context.Context) error { a.Knowledge.Invalidate(); return nil }
 	a.Agent = agent.New(a.DB, a.Cache, a.Cfg, a.Resources, a.Plans, a.Knowledge)
+	a.Agent.Navigation = a.Auth
 	a.MCP = mcpx.New(a.Cache, a.Cfg, a.Auth.AuthenticatePAT, a.Knowledge)
 	a.MCP.SetConfirmationRunner(a.Plans.ConfirmedRun)
 	if a.Cfg.MCP.Enabled && a.Cfg.MCP.OAuthIssuer != "" {

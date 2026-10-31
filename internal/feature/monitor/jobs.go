@@ -47,13 +47,13 @@ type JobListIn struct {
 type JobInput struct {
 	JobID          int64   `json:"jobId" uri:"jobId"`
 	JobName        *string `json:"jobName"`
-	JobGroup       *string `json:"jobGroup"`
-	InvokeTarget   *string `json:"invokeTarget"`
-	JobParams      *string `json:"jobParams"`
-	CronExpression *string `json:"cronExpression"`
+	JobGroup       *string `json:"jobGroup" jsonschema:"执行队列，只能为 DEFAULT、critical、low；普通任务及公开通知公告任务使用 DEFAULT，未指定时默认 DEFAULT。公共不是队列名，不要使用 PUBLIC 或按公告类型猜测分组。历史 SYSTEM 值仅兼容为 DEFAULT"`
+	InvokeTarget   *string `json:"invokeTarget" jsonschema:"必须先查询 monitor.job.handlers 选择已注册处理器。个人系统通知使用 system:notifyUser，公开通知公告使用 system:createNotice"`
+	JobParams      *string `json:"jobParams" jsonschema:"处理器参数的 JSON 字符串。system:notifyUser 使用 title、content，接收人绑定为创建者；system:createNotice 使用 noticeTitle、noticeContent、noticeType（1通知或2公告）、status（0正常或1停用）"`
+	CronExpression *string `json:"cronExpression" jsonschema:"标准五字段 cron：分钟 小时 日 月 周。每分钟用 * * * * *，每天九点用 0 9 * * *。不要生成秒、年份或 Quartz 问号；也可用 @every 1m"`
 	MisfirePolicy  *string `json:"misfirePolicy"`
 	Concurrent     *string `json:"concurrent"`
-	Status         *string `json:"status"`
+	Status         *string `json:"status" jsonschema:"0 表示运行，1 表示暂停。用户要求周期执行时应设为 0；省略时默认暂停"`
 	Remark         *string `json:"remark"`
 }
 type JobIDs struct {
@@ -87,12 +87,15 @@ func jobMap(j task.Job) map[string]any {
 }
 func (s *Service) jobFrom(ctx context.Context, in JobInput, create bool) (task.Job, error) {
 	j := task.Job{Status: "1", Concurrent: "1", DelFlag: "0", JobGroup: "DEFAULT", MisfirePolicy: "3", JobParams: "{}"}
+	var previous *task.Job
 	if !create {
 		var err error
 		j, err = s.job(ctx, in.JobID)
 		if err != nil {
 			return j, err
 		}
+		old := j
+		previous = &old
 	}
 	for _, p := range []struct {
 		dst *string
@@ -102,7 +105,8 @@ func (s *Service) jobFrom(ctx context.Context, in JobInput, create bool) (task.J
 			*p.dst = *p.src
 		}
 	}
-	return j, s.runtime.ValidateJob(&j)
+	err := s.runtime.PrepareJob(ctx, &j, previous)
+	return j, err
 }
 func (s *Service) jobPreview(ctx context.Context, in JobInput, create bool) (*capability.Preview, error) {
 	j, err := s.jobFrom(ctx, in, create)
@@ -218,6 +222,12 @@ func (s *Service) registerJobs() {
 		}, DryRun: func(ctx context.Context, in JobInput) (*capability.Preview, error) {
 			return s.jobPreview(ctx, in, create)
 		}, Undo: undo.Auto(s.db, undo.Table{Name: "sys_job", IDField: "job_id"}, "del_flag", "0")})
+		// The same schema constrains HTTP, AI and MCP descriptions.
+		entry, _ := capability.Lookup("monitor.job." + action)
+		entry.InputSchema.Properties["jobGroup"].Enum = []any{"DEFAULT", "critical", "low"}
+		if create {
+			entry.Examples = []capability.Example{{Utterance: "创建每分钟发布公共公告的定时任务", Args: `{"jobName":"每分钟发布公告","jobGroup":"DEFAULT","invokeTarget":"system:createNotice","jobParams":"{\"noticeTitle\":\"定时公告\",\"noticeContent\":\"这是一条定时公告\",\"noticeType\":\"2\",\"status\":\"0\"}","cronExpression":"* * * * *","status":"0"}`}}
+		}
 	}
 	capability.Register(capability.Capability[JobInput, capability.Empty]{Meta: capability.Meta{Name: "monitor.job.changeStatus", Summary: "启停定时任务", Perm: "monitor:job:changeStatus", Risk: capability.RiskMedium, Mutating: true, Reversible: true, HTTP: &capability.HTTPBinding{Method: "PUT", Path: "/monitor/job/changeStatus"}, AIEnabled: true, MCPEnabled: true, LogTitle: "定时任务", BizType: capability.BizUpdate}, Fn: func(ctx context.Context, in JobInput) (capability.Empty, error) {
 		if in.Status == nil || (*in.Status != "0" && *in.Status != "1") {
@@ -226,6 +236,11 @@ func (s *Service) registerJobs() {
 		old, err := s.job(ctx, in.JobID)
 		if err != nil {
 			return capability.Empty{}, err
+		}
+		if *in.Status == "0" {
+			if err := s.runtime.AuthorizeJob(ctx, old); err != nil {
+				return capability.Empty{}, err
+			}
 		}
 		err = dbx.DBFrom(ctx, s.db).Model(&task.Job{}).Where("job_id=?", in.JobID).Updates(map[string]any{"status": *in.Status, "update_time": time.Now()}).Error
 		if err == nil {
@@ -290,6 +305,9 @@ func (s *Service) registerJobs() {
 			return nil, err
 		}
 		if err = s.runtime.ValidateJob(&j); err != nil {
+			return nil, err
+		}
+		if err = s.runtime.AuthorizeJob(ctx, j); err != nil {
 			return nil, err
 		}
 		return &capability.Preview{Summary: "将任务加入执行队列：" + j.JobName, Affected: 1, Warnings: []string{"入队操作不可撤销；实际数据变更另行记录"}}, nil

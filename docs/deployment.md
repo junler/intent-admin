@@ -71,6 +71,8 @@ Changeset details support selected item IDs and an exact preview confirmation. C
 
 `deploy/nginx.conf` shows the relevant settings. Keep proxy buffering and caching disabled for AI SSE and MCP; allow long reads. Forward the host, client IP and scheme. Align the body-size limit with configured upload limits and allow multipart overhead for the 5 MB import limit. Terminate TLS at the proxy or ingress used by the deployment.
 
+The build precompresses static assets to `.br` and `.gz`, and the binary serves whichever the client accepts, preferring brotli, with `Vary: Accept-Encoding`. Pass `Accept-Encoding` through unchanged; a proxy that strips it or re-compresses responses itself silently discards this and ships the uncompressed bundle.
+
 ## Observability and recovery
 
 `/healthz` checks both PostgreSQL and Redis. Structured logs include request IDs and audit failures. The application UI provides online users, task logs, login/operation logs, server status, a bounded cache whitelist and an integrated queue console. Clearing sessions immediately revokes JWT access; personal tokens are separately revocable.

@@ -65,6 +65,7 @@ export default function Users() {
       perm="system:user"
       fields={fields}
       export
+      import
       actions={[
         {
           label: t('角色'),

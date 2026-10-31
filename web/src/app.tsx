@@ -35,16 +35,17 @@ import {
   Button,
   ConfigProvider,
   Dropdown,
-  Popover,
   Result,
   Spin,
   Tooltip,
   Typography,
 } from 'antd';
 import { type ReactNode, useEffect, useState } from 'react';
-import { AiPanel } from '@/components/ai/AiPanel';
+import { AiFloatingButton } from '@/components/ai/AiFloatingButton';
+import { AiPanel, useAiPanel } from '@/components/ai/AiPanel';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { Omnibox } from '@/components/omnibox/Omnibox';
+import { usePerm } from '@/hooks/usePerm';
 import { t } from '@/i18n';
 import LocaleSwitcher from '@/i18n/LocaleSwitcher';
 import DynamicPage from '@/pages/dynamic';
@@ -152,29 +153,23 @@ function UserActions() {
 }
 
 function HeaderSearch() {
+  const allowed = usePerm('ai:agent:use');
+  const reveal = useAiPanel((state) => state.reveal);
   return (
     <>
       <div className="intent-header-search">
         <Omnibox />
       </div>
       <div className="intent-mobile-search">
-        <Popover
-          trigger="click"
-          placement="bottomRight"
-          content={
-            <div className="intent-mobile-search-panel">
-              <Omnibox compact />
-            </div>
-          }
-        >
-          <Tooltip title={t('Intent 助手')}>
-            <Button
-              type="text"
-              icon={<SearchOutlined />}
-              aria-label={t('Intent 助手')}
-            />
-          </Tooltip>
-        </Popover>
+        <Tooltip title={t('AI 会话')}>
+          <Button
+            type="text"
+            icon={<SearchOutlined />}
+            aria-label={t('AI 会话')}
+            disabled={!allowed}
+            onClick={reveal}
+          />
+        </Tooltip>
       </div>
     </>
   );
@@ -274,6 +269,7 @@ function AuthGate({ children }: { children: ReactNode }) {
     <>
       {children}
       <AiPanel />
+      <AiFloatingButton />
     </>
   );
 }
@@ -303,10 +299,14 @@ const menuIcons: Record<string, ReactNode> = {
   SafetyCertificateOutlined: <SafetyCertificateOutlined />,
   CheckSquareOutlined: <CheckSquareOutlined />,
 };
-function proMenus(routes: MenuRoute[]): Array<{
+function proMenus(
+  routes: MenuRoute[],
+  depth = 0,
+): Array<{
   path: string;
   name: string;
   icon: ReactNode;
+  menuDepth: number;
   isUrl?: boolean;
   target?: string;
   children?: ReturnType<typeof proMenus>;
@@ -315,10 +315,28 @@ function proMenus(routes: MenuRoute[]): Array<{
     path: route.path,
     name: route.meta?.title ? t(route.meta.title) : route.path,
     icon: menuIcons[route.meta?.icon ?? ''] ?? <AppstoreOutlined />,
+    menuDepth: depth,
     isUrl: route.external,
     target: route.external ? '_blank' : undefined,
-    children: route.children?.length ? proMenus(route.children) : undefined,
+    children: route.children?.length
+      ? proMenus(route.children, depth + 1)
+      : undefined,
   }));
+}
+
+// ProLayout omits nested icons by default; keep its root rendering for the collapsed rail.
+function menuTitle(
+  item: { menuDepth?: number; icon?: ReactNode; name?: string },
+  dom: ReactNode,
+) {
+  return item.menuDepth ? (
+    <span className="intent-submenu-title">
+      <span className="intent-submenu-icon">{item.icon}</span>
+      <span className="intent-submenu-text">{item.name}</span>
+    </span>
+  ) : (
+    dom
+  );
 }
 
 export const layout: RunTimeLayoutConfig = ({ initialState }) => ({
@@ -329,15 +347,16 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => ({
     request: async () => proMenus(useUserStore.getState().menus),
   },
   menuDataRender: () => proMenus(useUserStore.getState().menus),
+  subMenuItemRender: menuTitle,
   menuItemRender: (item, dom) =>
     item.isUrl && item.path ? (
       <a href={item.path} target="_blank" rel="noopener noreferrer">
-        {dom}
+        {menuTitle(item, dom)}
       </a>
     ) : item.path ? (
-      <Link to={item.path}>{dom}</Link>
+      <Link to={item.path}>{menuTitle(item, dom)}</Link>
     ) : (
-      dom
+      menuTitle(item, dom)
     ),
   headerContentRender: () => <HeaderSearch />,
   actionsRender: () => [
@@ -362,6 +381,8 @@ export function rootContainer(container: ReactNode) {
   return (
     <StyleProvider layer>
       <ConfigProvider
+        modal={{ centered: true }}
+        pagination={{ styles: { root: { justifyContent: 'center' } } }}
         theme={{
           token: {
             colorPrimary: '#2563eb',

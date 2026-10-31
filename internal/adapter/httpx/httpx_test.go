@@ -259,7 +259,7 @@ func TestExportAndTemplateEndpoints(t *testing.T) {
 
 func TestDemoRoutesAndOpenAPIAgree(t *testing.T) {
 	if _, ok := capability.Lookup("demo.item.list"); !ok {
-		demo.Register(nil)
+		demo.Register(nil, nil)
 	}
 	entries := []*capability.Entry{}
 	for _, name := range []string{"demo.item.list", "demo.item.update", "demo.item.remove"} {

@@ -16,6 +16,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
+	"github.com/junler/intent-admin/internal/adapter/aitool"
 	"github.com/junler/intent-admin/internal/aiprovider"
 	"github.com/junler/intent-admin/internal/cache"
 	"github.com/junler/intent-admin/internal/capability"
@@ -31,14 +32,15 @@ type ModelProvider interface {
 }
 
 type Service struct {
-	db        *gorm.DB
-	cache     *cache.Cache
-	cfg       *config.Config
-	models    ModelProvider
-	plans     *plan.Service
-	knowledge *knowledge.Service
-	mu        sync.Mutex
-	cancels   map[string]context.CancelFunc
+	Navigation aitool.Navigation
+	db         *gorm.DB
+	cache      *cache.Cache
+	cfg        *config.Config
+	models     ModelProvider
+	plans      *plan.Service
+	knowledge  *knowledge.Service
+	mu         sync.Mutex
+	cancels    map[string]context.CancelFunc
 }
 
 func New(db *gorm.DB, c *cache.Cache, cfg *config.Config, models ModelProvider, plans *plan.Service, k *knowledge.Service) *Service {
@@ -46,12 +48,13 @@ func New(db *gorm.DB, c *cache.Cache, cfg *config.Config, models ModelProvider, 
 }
 
 type Message struct {
-	ID       string                `json:"id"`
-	Role     string                `json:"role"`
-	Content  string                `json:"content"`
-	Time     time.Time             `json:"time"`
-	PlanID   string                `json:"planId,omitempty"`
-	Evidence []capability.Evidence `json:"evidence,omitempty"`
+	Navigated bool                  `json:"navigated,omitempty"`
+	ID        string                `json:"id"`
+	Role      string                `json:"role"`
+	Content   string                `json:"content"`
+	Time      time.Time             `json:"time"`
+	PlanID    string                `json:"planId,omitempty"`
+	Evidence  []capability.Evidence `json:"evidence,omitempty"`
 }
 type Session struct {
 	ID        string            `json:"id"`

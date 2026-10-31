@@ -1,0 +1,147 @@
+/* Explicit typography restores the Markdown elements reset by Tailwind Preflight. */
+.intent-markdown {
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.intent-markdown :where(p, ul, ol, blockquote, pre, .intent-markdown-table) {
+  margin-block: 0.85em;
+}
+.intent-markdown :where(h1, h2, h3, h4, h5, h6) {
+  margin-block: 1.4em 0.6em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.intent-markdown h1 {
+  font-size: 1.6em;
+}
+.intent-markdown h2 {
+  font-size: 1.35em;
+}
+.intent-markdown h3 {
+  font-size: 1.15em;
+}
+.intent-markdown :where(h4, h5, h6) {
+  font-size: 1em;
+}
+.intent-markdown strong {
+  font-weight: 600;
+}
+.intent-markdown em {
+  font-style: italic;
+}
+.intent-markdown ul {
+  padding-inline-start: 1.6em;
+  list-style: disc outside;
+}
+.intent-markdown ol {
+  padding-inline-start: 1.6em;
+  list-style: decimal outside;
+}
+.intent-markdown ul ul {
+  list-style-type: circle;
+}
+.intent-markdown ul ul ul {
+  list-style-type: square;
+}
+.intent-markdown li {
+  margin-block: 0.3em;
+}
+.intent-markdown li > :where(ul, ol, p) {
+  margin-block: 0.35em;
+}
+.intent-markdown blockquote {
+  padding: 8px 16px;
+  border-inline-start: 3px solid #cbd5e1;
+  border-radius: 0 6px 6px 0;
+  background: #f8fafc;
+  color: var(--intent-muted);
+}
+.intent-markdown a {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.intent-markdown a:hover {
+  color: #1d4ed8;
+}
+.intent-markdown a:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.intent-markdown code {
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  background: #eef2f6;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.9em;
+}
+.intent-markdown pre {
+  max-width: 100%;
+  overflow: auto;
+  padding: 14px 16px;
+  border: 1px solid var(--intent-border);
+  border-radius: 8px;
+  background: #f8fafc;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-wrap: normal;
+  tab-size: 2;
+}
+.intent-markdown pre code {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.intent-markdown-table {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--intent-border);
+  border-radius: 8px;
+}
+.intent-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.intent-markdown :where(th, td) {
+  min-width: 100px;
+  padding: 8px 12px;
+  border: 1px solid var(--intent-border);
+  vertical-align: top;
+}
+.intent-markdown th {
+  background: #f1f5f9;
+  font-weight: 600;
+}
+.intent-markdown tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+.intent-markdown hr {
+  margin-block: 1.4em;
+  border: 0;
+  border-top: 1px solid var(--intent-border);
+}
+.intent-markdown img {
+  max-width: 100%;
+  height: auto;
+  margin-block: 0.85em;
+  border-radius: 6px;
+}
+.intent-markdown .task-list-item {
+  list-style: none;
+}
+.intent-markdown .task-list-item input[type="checkbox"] {
+  margin-inline: -1.4em 0.5em;
+  accent-color: #2563eb;
+}
+.intent-markdown :where(blockquote, li) > :first-child,
+.intent-markdown > :first-child {
+  margin-top: 0;
+}
+.intent-markdown :where(blockquote, li) > :last-child,
+.intent-markdown > :last-child {
+  margin-bottom: 0;
+}

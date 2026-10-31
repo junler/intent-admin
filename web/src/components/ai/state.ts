@@ -1,5 +1,10 @@
 import type { Evidence, Preview, Risk } from '@/api/types';
-import { safeRedirect } from '@/router/menu';
+import {
+  flattenPages,
+  normalizeMenus,
+  safeRedirect,
+  type MenuRoute,
+} from '@/router/menu';
 
 export interface PlanStep {
   seq: number;
@@ -64,6 +69,21 @@ export function evidenceURL(evidence: Evidence): string | undefined {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+/** Model-provided navigation must resolve to a currently authorized local page. */
+export function navigationURL(
+  evidence: Evidence,
+  menus: MenuRoute[],
+): string | undefined {
+  const url = evidenceURL(evidence);
+  if (!url) return undefined;
+  const pathname = new URL(url, 'https://intent.invalid').pathname;
+  return flattenPages(normalizeMenus(menus)).some(
+    (page) => page.path === pathname,
+  )
+    ? url
+    : undefined;
+}
+
 export function nextWriteStep(plan: Plan): PlanStep | undefined {
   // Read steps have no Preview. Their zero-based seq must never be sent as
   // the stepwise write confirmation when a later write is the next action.
@@ -117,4 +137,29 @@ export function managementURL(step: PlanStep): string | undefined {
     online: '/monitor/online',
   };
   return routes[step.capability.split('.')[1]];
+}
+
+/** Only completed plans suggest destinations for steps that actually succeeded. */
+export function completedPlanEvidence(plan: Plan): Evidence[] {
+  if (plan.status !== 'done') return [];
+  return plan.steps
+    .filter((step) => step.status === 'applied')
+    .flatMap((step) => {
+      const route = managementURL(step);
+      return route ? [{ route }] : [];
+    });
+}
+
+export function pageSuggestions(evidence: Evidence[], menus: MenuRoute[]) {
+  const pages = flattenPages(normalizeMenus(menus));
+  const seen = new Set<string>();
+  return evidence.flatMap((entry) => {
+    const url = navigationURL(entry, menus);
+    if (!url || seen.has(url)) return [];
+    seen.add(url);
+    const pathname = new URL(url, 'https://intent.invalid').pathname;
+    const title =
+      pages.find((page) => page.path === pathname)?.meta?.title ?? pathname;
+    return [{ url, title }];
+  });
 }

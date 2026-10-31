@@ -17,6 +17,7 @@ export default function Roles() {
       idKey="roleId"
       perm="system:role"
       export
+      import
       fields={[
         {
           name: 'roleName',

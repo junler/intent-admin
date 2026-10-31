@@ -8,17 +8,21 @@ import {
   TreeSelect,
 } from 'antd';
 import { t } from '@/i18n';
+import { AiFormScope } from '@/components/ai/AiFormContext';
 import { CronInput } from './CronInput';
 import type { Field } from './types';
+import type { FormFocus } from '@/components/ai/panelState';
 export function Fields({
   fields,
   editing = false,
+  aiForm,
 }: {
   fields: Field[];
   editing?: boolean;
+  aiForm?: FormFocus;
 }) {
   return (
-    <>
+    <AiFormScope value={aiForm}>
       {fields
         .filter(
           (f) => !f.hidden && f.form !== false && !(editing && f.createOnly),
@@ -86,6 +90,6 @@ export function Fields({
             )}
           </Form.Item>
         ))}
-    </>
+    </AiFormScope>
   );
 }

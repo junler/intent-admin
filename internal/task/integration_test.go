@@ -17,6 +17,7 @@ import (
 	"github.com/junler/intent-admin/internal/config"
 	"github.com/junler/intent-admin/internal/dbx"
 	"github.com/junler/intent-admin/internal/feature/demo"
+	"github.com/junler/intent-admin/internal/feature/system"
 	"github.com/junler/intent-admin/internal/pkg/paginate"
 	"github.com/junler/intent-admin/internal/task"
 	"github.com/junler/intent-admin/migrations"
@@ -66,7 +67,8 @@ func TestQueueSchedulerAndAsyncExportIntegration(t *testing.T) {
 	t.Cleanup(cancel)
 	cs := changeset.New(db)
 	capability.Install(capability.Hooks{Tx: dbx.NewTxRunner(db), ReadOnly: dbx.NewReadOnlyRunner(), PersistChanges: cs.Persist, WriteAudit: cs.WriteAudit, MaxChangesetItems: 2000})
-	demo.Register(db)
+	system.Register(db, c, cfg)
+	demo.Register(db, nil)
 	r := task.New(db, c, cfg)
 	r.RegisterCapabilities()
 	t.Cleanup(r.Close)
@@ -108,6 +110,91 @@ func TestQueueSchedulerAndAsyncExportIntegration(t *testing.T) {
 	if after != stopped {
 		t.Fatalf("disabled task still ran %d -> %d", stopped, after)
 	}
+	t.Run("private scheduled notification", func(t *testing.T) {
+		title := fmt.Sprintf("integration reminder %d", time.Now().UnixNano())
+		params, _ := json.Marshal(map[string]any{"title": title, "content": "每分钟个人系统通知"})
+		reminder := task.Job{JobName: title, InvokeTarget: task.NotificationHandler, JobParams: string(params), CronExpression: "0 * * * * ?", Status: "1", DelFlag: "0", CreateTime: time.Now(), UpdateTime: time.Now()}
+		owner := &capability.Actor{Type: capability.ActorHuman, Source: capability.SourceAI, UserID: 1, UserName: "admin", Perms: []string{capability.SuperPerm}, MaxRisk: capability.RiskHigh}
+		if err := r.PrepareJob(capability.WithActor(ctx, owner), &reminder, nil); err != nil {
+			t.Fatal(err)
+		}
+		if reminder.CronExpression != "* * * * *" {
+			t.Fatalf("unexpected per-minute schedule %q", reminder.CronExpression)
+		}
+		systemCtx := capability.WithActor(ctx, capability.SystemActor("notification integration"))
+		if _, err := capability.RunPreview(systemCtx, "task.system.notifyUser", json.RawMessage(reminder.JobParams)); err != nil {
+			t.Fatal(err)
+		}
+		var count int64
+		db.Table("sys_notification").Where("title=?", title).Count(&count)
+		if count != 0 {
+			t.Fatal("preview sent a notification")
+		}
+		httpActor := *owner
+		httpActor.Source = capability.SourceHTTP
+		if _, err := capability.InvokeJSON(capability.WithActor(ctx, &httpActor), "task.system.notifyUser", json.RawMessage(reminder.JobParams)); err == nil {
+			t.Fatal("direct HTTP call bypassed the task-only notification boundary")
+		}
+		if err := db.Create(&reminder).Error; err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			db.Exec("DELETE FROM sys_notification WHERE title=?", title)
+			db.Exec("DELETE FROM sys_job WHERE job_id=?", reminder.JobID)
+		})
+		if _, err := r.Enqueue(ctx, reminder, true); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, 10*time.Second, func() bool {
+			db.Table("sys_notification").Where("title=? AND user_id=1", title).Count(&count)
+			return count == 1
+		})
+		db.Table("sys_notification").Where("title=? AND user_id<>1", title).Count(&count)
+		if count != 0 {
+			t.Fatal("private notification reached another user")
+		}
+		db.Table("sys_changeset_item").Where("entity='sys_notification' AND entity_label=?", title).Count(&count)
+		if count != 1 {
+			t.Fatalf("notification has %d changeset items, want 1", count)
+		}
+	})
+	t.Run("scheduled public announcement", func(t *testing.T) {
+		title := fmt.Sprintf("integration announcement %d", time.Now().UnixNano())
+		params, _ := json.Marshal(map[string]any{"noticeTitle": title, "noticeContent": "定时公告正文"})
+		announcement := task.Job{JobName: title, InvokeTarget: task.AnnouncementHandler, JobParams: string(params), CronExpression: "* * * * *", Status: "1", DelFlag: "0", CreateTime: time.Now(), UpdateTime: time.Now()}
+		actor := &capability.Actor{Type: capability.ActorHuman, Source: capability.SourceAI, UserID: 1, UserName: "admin", Perms: []string{"monitor:job:add", "system:notice:add"}, MaxRisk: capability.RiskHigh}
+		actorCtx := capability.WithActor(ctx, actor)
+		if err := r.PrepareJob(actorCtx, &announcement, nil); err != nil {
+			t.Fatal(err)
+		}
+		systemCtx := capability.WithActor(ctx, capability.SystemActor("announcement integration"))
+		if _, err := capability.RunPreview(systemCtx, "system.notice.create", json.RawMessage(announcement.JobParams)); err != nil {
+			t.Fatal(err)
+		}
+		var count int64
+		db.Table("sys_notice").Where("notice_title=?", title).Count(&count)
+		if count != 0 {
+			t.Fatal("preview published a public announcement")
+		}
+		if err := db.Create(&announcement).Error; err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			db.Exec("DELETE FROM sys_notice WHERE notice_title=?", title)
+			db.Exec("DELETE FROM sys_job WHERE job_id=?", announcement.JobID)
+		})
+		if _, err := r.Enqueue(actorCtx, announcement, true); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, 10*time.Second, func() bool {
+			db.Table("sys_notice").Where("notice_title=? AND notice_type='2' AND status='0' AND notice_content=?", title, "定时公告正文").Count(&count)
+			return count == 1
+		})
+		db.Table("sys_changeset_item").Where("entity='sys_notice' AND entity_label=? AND capability='system.notice.create'", title).Count(&count)
+		if count != 1 {
+			t.Fatalf("announcement has %d changeset items, want 1", count)
+		}
+	})
 	var active, max atomic.Int32
 	var completed atomic.Int32
 	r.RegisterHandler(task.Handler{Name: "integration:slow", Summary: "test nonconcurrency", ParamsProto: map[string]any{}, Fn: func(ctx context.Context, _ json.RawMessage) error {

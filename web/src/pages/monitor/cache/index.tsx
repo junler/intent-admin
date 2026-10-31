@@ -159,7 +159,7 @@ export default function Cache() {
                 ),
               },
             ]}
-            pagination={{ pageSize: 15 }}
+            pagination={{ pageSize: 15, hideOnSinglePage: true }}
           />
           {value && (
             <Descriptions

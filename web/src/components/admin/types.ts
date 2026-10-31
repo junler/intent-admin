@@ -59,6 +59,12 @@ export interface CrudConfig {
   canDelete?: boolean;
   batchDelete?: boolean;
   export?: boolean;
+  /**
+   * Show the XLSX import action. The entity also needs a column specification
+   * in internal/feature/importer. Defaults to the `{perm}:add` permission;
+   * pass an object to require a different one.
+   */
+  import?: boolean | { permission?: string };
   actions?: RowAction[];
   extra?: ReactNode;
   params?: Row;

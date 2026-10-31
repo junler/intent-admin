@@ -7,7 +7,7 @@ BUILD_TIME ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS = -s -w -X github.com/junler/intent-admin/internal/bootstrap.Version=$(VERSION) -X github.com/junler/intent-admin/internal/bootstrap.Commit=$(COMMIT) -X github.com/junler/intent-admin/internal/bootstrap.BuildTime=$(BUILD_TIME)
 
 .DEFAULT_GOAL := help
-.PHONY: help install test test-web lint build build-web build-backend dev dev-api dev-backend dev-web migrate migrate-up migrate-down migrate-status seed serve docker release clean
+.PHONY: help install test test-web lint build build-web build-backend dev dev-api dev-backend dev-web migrate migrate-up migrate-down migrate-status seed serve docker release rename clean
 
 help:
 	@printf '%s\n' 'make install        Install Go and Ant Design Pro dependencies' 'make migrate-up     Apply database migrations and seed data' 'make dev            Start API :8080 and Umi Max :5173' 'make dev-backend    Start the API only' 'make dev-web        Start the frontend only' 'make test           Run Go tests' 'make test-web       Run frontend tests' 'make lint           Run go vet and frontend type checking' 'make build          Build frontend and embedded single binary' 'make docker         Build the application image' 'make release        Build snapshot release archives'
@@ -68,6 +68,13 @@ docker:
 
 release:
 	goreleaser release --snapshot --clean
+
+# Rebrand the template for a new project, e.g.
+#   make rename MODULE=github.com/acme/orders NAME=Orders
+rename:
+	@test -n "$(MODULE)" || (echo 'MODULE is required, e.g. make rename MODULE=github.com/acme/orders NAME=Orders'; exit 2)
+	@test -n "$(NAME)" || (echo 'NAME is required, e.g. make rename MODULE=github.com/acme/orders NAME=Orders'; exit 2)
+	scripts/rename.sh --module "$(MODULE)" --name "$(NAME)" $(if $(BINARY),--binary "$(BINARY)",)
 
 clean:
 	rm -rf bin web/dist

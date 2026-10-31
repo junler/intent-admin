@@ -58,6 +58,20 @@ func New(c Config) (Driver, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Canonicalise the operator-configured root once, here, instead of
+		// rejecting symlinks above it on every request. The root is chosen by
+		// the operator, not the caller, and legitimate paths run through
+		// symlinks (/var -> private/var on macOS, /data -> /mnt/... on many
+		// deployments). Escape prevention is enforced on the caller-supplied
+		// key instead, which is the attacker-controlled part.
+		if err = os.MkdirAll(root, 0700); err != nil {
+			return nil, err
+		}
+		if resolved, err := filepath.EvalSymlinks(root); err == nil {
+			root = resolved
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
 		return &local{root: root, base: c.BaseURL}, nil
 	}
 	if c.Driver != "s3" {
@@ -123,19 +137,9 @@ func (l *local) resolve(key string) (string, error) {
 	if !validKey(key) {
 		return "", errors.New("非法文件路径")
 	}
+	// l.root was canonicalised in New, so only the key's own components can
+	// introduce a symlink that escapes it.
 	root := l.root
-	// Verify configured root ancestors too; a symlink above LocalDir must not escape.
-	ancestor := string(filepath.Separator)
-	for _, part := range strings.Split(strings.TrimPrefix(root, string(filepath.Separator)), string(filepath.Separator)) {
-		ancestor = filepath.Join(ancestor, part)
-		info, err := os.Lstat(ancestor)
-		if err == nil && info.Mode()&os.ModeSymlink != 0 {
-			return "", errors.New("本地存储路径不能包含符号链接")
-		}
-		if err != nil && !os.IsNotExist(err) {
-			return "", err
-		}
-	}
 	cur := root
 	if info, err := os.Lstat(root); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return "", errors.New("本地存储目录不能是符号链接")

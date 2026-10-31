@@ -1,15 +1,28 @@
 package auth
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/png"
+	"math"
+	"math/big"
+	visualrand "math/rand/v2"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/mojocn/base64Captcha"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/gofont/gobold"
+	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/math/fixed"
 
 	"github.com/junler/intent-admin/internal/pkg/errcode"
 	"github.com/junler/intent-admin/internal/pkg/response"
@@ -71,15 +84,46 @@ if value then redis.call('DEL',KEYS[1]) end
 return value
 `)
 
-// Use the raster digit renderer, with skew and random noise, rather than SVG
-// primitives that reveal the answer directly to an XML parser.
+// Render at twice the display resolution with a fixed font size and separate
+// digit cells. Keep background interference light and behind the text.
 func captchaPNG() (string, string, error) {
-	driver := base64Captcha.NewDriverDigit(48, 160, 5, 0.75, 80)
-	_, question, answer := driver.GenerateIdQuestionAnswer()
-	item, err := driver.DrawCaptcha(question)
+	code := make([]byte, 5)
+	for i := range code {
+		n, err := rand.Int(rand.Reader, big.NewInt(10))
+		if err != nil {
+			return "", "", err
+		}
+		code[i] = '0' + byte(n.Int64())
+	}
+	f, err := opentype.Parse(gobold.TTF)
 	if err != nil {
 		return "", "", err
 	}
-	img := strings.TrimPrefix(item.EncodeB64string(), "data:image/png;base64,")
-	return answer, img, nil
+	face, err := opentype.NewFace(f, &opentype.FaceOptions{Size: 64, DPI: 72, Hinting: font.HintingFull})
+	if err != nil {
+		return "", "", err
+	}
+	defer face.Close()
+	img := image.NewRGBA(image.Rect(0, 0, 224, 72))
+	draw.Draw(img, img.Bounds(), image.White, image.Point{}, draw.Src)
+	for range 2 {
+		phase := visualrand.Float64() * 2 * math.Pi
+		for x := 0; x < 224; x++ {
+			y := 36 + int(16*math.Sin(float64(x)/40+phase))
+			img.SetRGBA(x, y, color.RGBA{184, 197, 213, 255})
+		}
+	}
+	d := font.Drawer{Dst: img, Face: face}
+	for i, digit := range code {
+		text := string(digit)
+		advance := d.MeasureString(text).Ceil()
+		d.Dot = fixed.P(12+i*40+(40-advance)/2, 58+visualrand.IntN(5)-2)
+		d.Src = image.NewUniform(color.RGBA{uint8(24 + visualrand.IntN(32)), 43, 77, 255})
+		d.DrawString(text)
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return "", "", err
+	}
+	return string(code), base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }

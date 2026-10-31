@@ -1,3 +1,4 @@
+import { DetailDialog } from '@/components/common/DetailDialog';
 import {
   AuditOutlined,
   CheckOutlined,
@@ -16,22 +17,23 @@ import {
   App,
   Button,
   Descriptions,
-  Drawer,
   Empty,
   Input,
   Modal,
   Segmented,
   Space,
-  Spin,
   Tag,
   Typography,
 } from 'antd';
 import { useEffect, useRef, useState } from 'react';
+import { AiFormMarker } from '@/components/ai/AiFormContext';
 import { approvalActions, approvalLabels } from '@/components/ai/approval';
 import { PlanCard } from '@/components/ai/PlanCard';
 import type { PlanApproval } from '@/components/ai/state';
+import { Loading } from '@/components/common/Loading';
 import { usePageActive } from '@/contexts/ActivePageContext';
 import { usePerm } from '@/hooks/usePerm';
+import { useAiForm } from '@/hooks/useAiForm';
 import { getLocale, t } from '@/i18n';
 import { useUserStore } from '@/stores/user';
 import { ApiError, api, Code, type PageData } from '@/utils/request';
@@ -52,6 +54,17 @@ export default function ApprovalsPage() {
   const { message, modal } = App.useApp();
   const selected = new URLSearchParams(location.search).get('id');
   const actions = detail && approvalActions(detail, userId, canApprove, now);
+  useAiForm({
+    id: `approval.comment.${selected ?? ''}`,
+    title: t('审批意见（选填）'),
+    fields: ['comment'],
+    permission: 'ai:agent:use',
+    enabled: !!decision && !busy,
+    fill: (values) => {
+      if (typeof values.comment === 'string')
+        setComment(values.comment.slice(0, 1000));
+    },
+  });
 
   async function load(id: string) {
     const result = await api.get<PlanApproval>(
@@ -272,10 +285,10 @@ export default function ApprovalsPage() {
           );
           return { data: result.rows, total: result.total, success: true };
         }}
-        pagination={{ defaultPageSize: 10 }}
+        pagination={{ defaultPageSize: 10, hideOnSinglePage: true }}
         scroll={{ x: 950 }}
       />
-      <Drawer
+      <DetailDialog
         width={960}
         open={!!selected}
         onClose={() => history.push('/ai/approvals')}
@@ -289,7 +302,7 @@ export default function ApprovalsPage() {
         }
       >
         {detailLoading ? (
-          <Spin />
+          <Loading panel />
         ) : detail ? (
           <Space orientation="vertical" size="large" className="w-full">
             <Descriptions bordered size="small" column={2}>
@@ -387,7 +400,7 @@ export default function ApprovalsPage() {
         ) : (
           <Empty description={t('审批不存在或当前账号无法访问')} />
         )}
-      </Drawer>
+      </DetailDialog>
       <Modal
         open={!!decision}
         title={t(
@@ -420,6 +433,15 @@ export default function ApprovalsPage() {
                 ? '撤销后计划回到待预演状态，不能使用原批准继续执行。'
                 : '请说明需要调整的内容，发起人可以重新申请审批。',
           )}
+        />
+        <AiFormMarker
+          field="comment"
+          label={t('审批意见（选填）')}
+          form={{
+            title: t('审批意见（选填）'),
+            mode: 'action',
+            formId: `ui.approval.comment.${selected ?? ''}`,
+          }}
         />
         <Input.TextArea
           value={comment}

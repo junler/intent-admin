@@ -14,21 +14,58 @@ import {
   Upload,
 } from 'antd';
 import { useEffect, useState } from 'react';
+import { AiFormScope, AiFormMarker } from '@/components/ai/AiFormContext';
 import type { Row } from '@/components/admin/types';
 import { useAdminAction } from '@/components/admin/useAdminAction';
 import { t } from '@/i18n';
+import { useFormDraftStore } from '@/stores/formDraft';
+import { usePageActive } from '@/contexts/ActivePageContext';
 import { useUserStore } from '@/stores/user';
 import { api } from '@/utils/request';
 export default function Profile() {
   const [form] = Form.useForm();
   const [password] = Form.useForm();
   const [user, setUser] = useState<Row>({});
+  const [loaded, setLoaded] = useState(false);
+  const [tab, setTab] = useState('profile');
+  const active = usePageActive();
+  const draft = useFormDraftStore((state) => state.draft);
+  const owner = useUserStore((state) => state.identity?.user.userId);
+  useEffect(() => {
+    if (
+      !active ||
+      !loaded ||
+      draft?.target.formId ||
+      draft?.target.route !== '/system/profile'
+    )
+      return;
+    const pending = useFormDraftStore
+      .getState()
+      .take(owner ?? 0, '/system/profile');
+    if (!pending) return;
+    const passwordForm = pending.target.path?.endsWith('/updatePwd');
+    const names = passwordForm
+      ? ['oldPassword', 'newPassword', 'confirmPassword']
+      : ['nickName', 'email', 'phonenumber', 'sex'];
+    const values = Object.fromEntries(
+      Object.entries(pending.values).filter(([key]) => names.includes(key)),
+    );
+    if (
+      passwordForm &&
+      typeof values.newPassword === 'string' &&
+      values.confirmPassword === undefined
+    )
+      values.confirmPassword = values.newPassword;
+    (passwordForm ? password : form).setFieldsValue(values);
+    setTab(passwordForm ? 'password' : 'profile');
+  }, [active, loaded, draft, owner, form, password]);
   const { message } = App.useApp();
   async function load() {
     const data = await api.get<Row>('/system/user/profile');
     const value = data.user ?? data;
     setUser(value);
     form.setFieldsValue(value);
+    setLoaded(true);
   }
   useEffect(() => {
     void load().catch(() => {});
@@ -105,91 +142,113 @@ export default function Profile() {
           </div>
         </div>
         <Tabs
+          activeKey={tab}
+          onChange={setTab}
           items={[
             {
               key: 'profile',
               label: t('基本资料'),
               children: (
-                <Form form={form} layout="vertical" className="max-w-lg">
-                  <Form.Item
-                    name="nickName"
-                    label={t('昵称')}
-                    rules={[{ required: true }]}
-                  >
-                    <Input />
-                  </Form.Item>
-                  <Form.Item
-                    name="email"
-                    label={t('邮箱')}
-                    rules={[{ type: 'email' }]}
-                  >
-                    <Input />
-                  </Form.Item>
-                  <Form.Item name="phonenumber" label={t('手机')}>
-                    <Input />
-                  </Form.Item>
-                  <Form.Item name="sex" label={t('性别')}>
-                    <Select
-                      options={[
-                        { label: t('男'), value: '0' },
-                        { label: t('女'), value: '1' },
-                        { label: t('未知'), value: '2' },
-                      ]}
-                    />
-                  </Form.Item>
-                  <Button
-                    type="primary"
-                    onClick={() => void saveProfile().catch(() => {})}
-                  >
-                    {t('保存资料')}
-                  </Button>
-                </Form>
+                <AiFormScope
+                  value={{
+                    title: t('基本资料'),
+                    mode: 'update',
+                    route: '/system/profile',
+                    path: '/system/user/profile',
+                  }}
+                >
+                  <Form form={form} layout="vertical" className="max-w-lg">
+                    <AiFormMarker />
+                    <Form.Item
+                      name="nickName"
+                      label={t('昵称')}
+                      rules={[{ required: true }]}
+                    >
+                      <Input />
+                    </Form.Item>
+                    <Form.Item
+                      name="email"
+                      label={t('邮箱')}
+                      rules={[{ type: 'email' }]}
+                    >
+                      <Input />
+                    </Form.Item>
+                    <Form.Item name="phonenumber" label={t('手机')}>
+                      <Input />
+                    </Form.Item>
+                    <Form.Item name="sex" label={t('性别')}>
+                      <Select
+                        options={[
+                          { label: t('男'), value: '0' },
+                          { label: t('女'), value: '1' },
+                          { label: t('未知'), value: '2' },
+                        ]}
+                      />
+                    </Form.Item>
+                    <Button
+                      type="primary"
+                      onClick={() => void saveProfile().catch(() => {})}
+                    >
+                      {t('保存资料')}
+                    </Button>
+                  </Form>
+                </AiFormScope>
               ),
             },
             {
               key: 'password',
               label: t('修改密码'),
               children: (
-                <Form form={password} layout="vertical" className="max-w-lg">
-                  <Form.Item
-                    name="oldPassword"
-                    label={t('当前密码')}
-                    rules={[{ required: true }]}
-                  >
-                    <Input.Password autoComplete="current-password" />
-                  </Form.Item>
-                  <Form.Item
-                    name="newPassword"
-                    label={t('新密码')}
-                    rules={[{ required: true }, { min: 6 }]}
-                  >
-                    <Input.Password autoComplete="new-password" />
-                  </Form.Item>
-                  <Form.Item
-                    name="confirmPassword"
-                    label={t('确认密码')}
-                    dependencies={['newPassword']}
-                    rules={[
-                      { required: true },
-                      ({ getFieldValue }) => ({
-                        validator: (_, value) =>
-                          value === getFieldValue('newPassword')
-                            ? Promise.resolve()
-                            : Promise.reject(new Error(t('两次密码不一致'))),
-                      }),
-                    ]}
-                  >
-                    <Input.Password autoComplete="new-password" />
-                  </Form.Item>
-                  <Space>
-                    <Button
-                      type="primary"
-                      onClick={() => void savePassword().catch(() => {})}
+                <AiFormScope
+                  value={{
+                    title: t('修改密码'),
+                    mode: 'action',
+                    route: '/system/profile',
+                    path: '/system/user/profile/updatePwd',
+                  }}
+                >
+                  <Form form={password} layout="vertical" className="max-w-lg">
+                    <AiFormMarker />
+                    <Form.Item
+                      name="oldPassword"
+                      label={t('当前密码')}
+                      rules={[{ required: true }]}
                     >
-                      {t('修改密码')}
-                    </Button>
-                  </Space>
-                </Form>
+                      <Input.Password autoComplete="current-password" />
+                    </Form.Item>
+                    <Form.Item
+                      name="newPassword"
+                      label={t('新密码')}
+                      rules={[{ required: true }, { min: 6 }]}
+                    >
+                      <Input.Password autoComplete="new-password" />
+                    </Form.Item>
+                    <Form.Item
+                      name="confirmPassword"
+                      label={t('确认密码')}
+                      dependencies={['newPassword']}
+                      rules={[
+                        { required: true },
+                        ({ getFieldValue }) => ({
+                          validator: (_, value) =>
+                            value === getFieldValue('newPassword')
+                              ? Promise.resolve()
+                              : Promise.reject(new Error(t('两次密码不一致'))),
+                        }),
+                      ]}
+                    >
+                      <Input.Password autoComplete="new-password" />
+                    </Form.Item>
+                    <Space>
+                      <Button
+                        type="primary"
+                        onClick={() => void savePassword().catch(() => {})}
+                      >
+                        {t('修改密码')}
+                      </Button>
+                    </Space>
+                  </Form>
+                </AiFormScope>
               ),
             },
           ]}

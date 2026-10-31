@@ -27,6 +27,51 @@ The API listens on port 8080 and Umi Max on 5173. `API_PROXY` changes the develo
 - Configuration credentials use AES-256-GCM. Never put plaintext, ciphertext, passwords or token hashes into previews or changeset snapshots. Opaque, expiring vault references support credential compensation.
 - AI/MCP-visible writes require a preview. Model/storage configuration writes, personal password changes and token creation remain closed to these entry points.
 
+## Add a business module
+
+Use this when starting a whole module. "Add a Capability" below covers adding
+one operation to a module that already exists.
+
+Name capabilities after the table — `shop.order.list` for `shop_order` — and
+the shared infrastructure resolves the module on its own. Route evidence, MCP
+entity filtering and the startup knowledge check all derive from that name, so
+no central list needs editing.
+
+1. **Migration.** Add a versioned SQL file in `migrations/`. Never edit a
+   released version.
+2. **Model and service.** `internal/model` for the row, `internal/service` for
+   the policy. Query through `dbx.DBFrom(ctx, db)`.
+3. **Feature package.** `internal/feature/<module>` registering the
+   capabilities, each with `DryRun` and, for writes, `Undo`. See the worked
+   example below; `internal/feature/demo` is the same thing end to end.
+4. **Bootstrap.** One `<module>.Register(a.DB)` call in `internal/bootstrap`.
+   Pass `a.Tasks` too if the module ships scheduler handlers.
+5. **Knowledge.** Register an `EntityDef` in `internal/knowledge` describing
+   the table, its key and label columns and any invariants. Startup logs a
+   warning naming the capability if this is missed.
+6. **Menu.** Seed the menu row and permission strings in a migration. The
+   `component` value maps to `web/src/pages/<path>/index.tsx`.
+7. **Page.** Add the page under `web/src/pages`; `npm run dev` regenerates the
+   component registry. `CrudPage` takes `export` and `import` flags — set
+   `import` only after adding the entity's column specification in
+   `internal/feature/importer`.
+8. **Coded columns.** If a column stores dictionary codes, add an
+   `entity.column` entry to `web/src/components/diff/fieldMetadata.ts` so
+   changeset and rollback views show labels instead of raw values.
+
+Run `go test ./... && npm --prefix web run lint && npm --prefix web test`.
+
+## Remove the example module
+
+`demo` exists so the Capability layer can be read end to end. To drop it:
+run `intent-admin demo clear --yes`, then delete `internal/feature/demo`,
+`internal/service/demo.go`, `internal/model/demo_item.go`,
+`web/src/pages/demo`, `migrations/00001_demo_item.sql` and its menu rows, the
+`demo.Register` call in `internal/bootstrap`, the `demo_item` entries in
+`internal/knowledge` and `web/src/components/diff/fieldMetadata.ts`, and the
+`/demo/item` specification in `internal/feature/importer`. Nothing else in the
+framework refers to it.
+
 ## Add a Capability
 
 The existing demo service is a compact worked example. This feature adds another typed operation to change its remark, reusing the service's transaction and Recorder behavior:
@@ -106,6 +151,8 @@ The integrated queue console uses `internal/task` and `internal/feature/monitor`
 MCP OAuth in `internal/oauth` uses an explicitly configured canonical `mcp.oauth_issuer`, PKCE S256, public-client registration and logged-in consent. An empty issuer disables OAuth while PATs remain supported. Keep redirect/resource validation, refresh rotation, grant revocation and live permission resolution intact. A read-only grant must remain read-only through generic tool wrappers and confirmations. Resources in `internal/adapter/mcpx/resources.go` must authenticate and filter every listing/read, including on a long-lived session; a previously visible URI is not proof of current access.
 
 For frontend copy, use `t` from `@/i18n` and add English values to the relevant catalogue under `web/src/i18n/messages`. Keep protocol strings, permission checks, stored values and user-entered content out of translation. Umi supplies the Chinese/English locale picker and reloads the document on a switch; do not add a second locale store. Use templates for interpolated UI messages and `localizeMessage` only for known server/product messages. Run `npm --prefix web run i18n:check` alongside tests and type checking.
+
+UI form assistance uses `list_forms`, `describe_form` and `fill_form` to prepare browser-only drafts. Shared CRUD editors support creation, record-bound updates and row-action forms automatically. Register independent forms with `useAiForm`, declaring only editable field names and a field-setting callback; never pass a submit handler or current field values. Drafts are account-bound, expire after two minutes and are consumed once. Final writes continue through the ordinary human HTTP capability executor, including previews, permissions and audit. Credentials must not be placed in URLs, browser storage, plans or retained model tool-call history.
 
 ## Validation
 

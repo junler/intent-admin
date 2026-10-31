@@ -31,6 +31,7 @@ import (
 type Handler struct {
 	Name        string                                       `json:"name"`
 	Summary     string                                       `json:"summary"`
+	Permission  string                                       `json:"permission,omitempty"`
 	ParamsProto any                                          `json:"paramsProto"`
 	Fn          func(context.Context, json.RawMessage) error `json:"-"`
 }
@@ -149,6 +150,30 @@ func ValidateCron(expression string) (cron.Schedule, error) {
 	}
 	return s, nil
 }
+
+// NormalizeCron converts only unambiguous, minute-resolution Quartz schedules.
+// Numeric Quartz weekdays have different semantics and must never be guessed.
+func NormalizeCron(expression string) (string, error) {
+	fields := strings.Fields(expression)
+	if len(fields) == 6 && fields[0] == "0" && (fields[3] == "?" || fields[5] == "?") {
+		if strings.ContainsAny(fields[5], "0123456789") {
+			return "", errcode.BadRequestf("Quartz 数字星期与标准 cron 含义不同，请使用 MON 到 SUN 或标准五字段 cron")
+		}
+		fields = fields[1:]
+		for _, i := range []int{2, 4} {
+			if fields[i] == "?" {
+				fields[i] = "*"
+			}
+		}
+		expression = strings.Join(fields, " ")
+	} else {
+		expression = strings.TrimSpace(expression)
+	}
+	if _, err := ValidateCron(expression); err != nil {
+		return "", err
+	}
+	return expression, nil
+}
 func (r *Runtime) ValidateJob(j *Job) error {
 	if j.InvokeTarget == "system:exportAsync" {
 		return errcode.Forbiddenf("异步导出只能从已授权用户的导出接口发起，不能作为定时任务选择")
@@ -213,13 +238,26 @@ func (r *Runtime) ValidateJob(j *Job) error {
 				return errcode.BadRequestf("演示处理器需要正整数 itemId 与状态 0 或 1")
 			}
 		}
+		if j.InvokeTarget == NotificationHandler {
+			if _, err := notificationParams(json.RawMessage(j.JobParams)); err != nil {
+				return err
+			}
+		}
+		if j.InvokeTarget == AnnouncementHandler {
+			if _, err := announcementParams(json.RawMessage(j.JobParams)); err != nil {
+				return err
+			}
+		}
 
 	}
-	if j.JobGroup == "" {
+	switch strings.ToLower(strings.TrimSpace(j.JobGroup)) {
+	case "", "default", "system":
+		// SYSTEM is a legacy seeded dictionary value, not a worker queue.
 		j.JobGroup = "DEFAULT"
-	}
-	switch strings.ToLower(j.JobGroup) {
-	case "default", "critical", "low":
+	case "critical":
+		j.JobGroup = "critical"
+	case "low":
+		j.JobGroup = "low"
 	default:
 		return errcode.BadRequestf("任务分组只能为 DEFAULT、critical 或 low")
 	}
@@ -246,6 +284,9 @@ func (r *Runtime) ValidateJob(j *Job) error {
 	return nil
 }
 func (r *Runtime) Enqueue(ctx context.Context, j Job, manual bool) (string, error) {
+	if err := r.AuthorizeJob(ctx, j); err != nil {
+		return "", err
+	}
 	if err := r.ValidateJob(&j); err != nil {
 		return "", err
 	}

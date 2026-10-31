@@ -83,7 +83,7 @@ func TestPlanPersistenceRecheckGroupingRollback(t *testing.T) {
 	}
 	sets := changeset.New(db)
 	sets.Register()
-	demo.Register(db)
+	demo.Register(db, nil)
 	capability.Install(capability.Hooks{Tx: dbx.NewTxRunner(db), ReadOnly: dbx.NewReadOnlyRunner(), PersistChanges: sets.Persist, WriteAudit: sets.WriteAudit, MaxAIRisk: capability.RiskHigh})
 	plans := New(db, Options{TTL: time.Minute, MaxSteps: 5, MaxAffected: 200, Changesets: sets})
 	ctx := capability.WithActor(context.Background(), testActor(capability.SourceAI, capability.RiskHigh))

@@ -116,7 +116,9 @@ func resourceTemplates() []*mcp.ResourceTemplate {
 	return []*mcp.ResourceTemplate{{URITemplate: "capability://{name}", Name: "有权使用的功能描述", MIMEType: "application/json"}, {URITemplate: "dict://{type}", Name: "授权实体使用的字典", MIMEType: "application/json"}, {URITemplate: "entity://{table}", Name: "授权实体结构", MIMEType: "application/json"}}
 }
 
-var entityPrefixes = map[string]string{"system.user": "sys_user", "system.role": "sys_role", "system.menu": "sys_menu", "system.config": "sys_config", "system.notice": "sys_notice", "system.dictType": "sys_dict_type", "system.dictData": "sys_dict_data", "system.dict": "sys_dict_data", "system.upload": "sys_upload", "system.job": "sys_job", "monitor.joblog": "sys_job_log", "monitor.operlog": "sys_oper_log", "monitor.loginlog": "sys_login_log", "system.audit": "sys_oper_log", "system.changeset": "sys_changeset", "demo.item": "demo_item"}
+// entityPrefixes lives in the knowledge package, which owns entity metadata,
+// so this filter and the startup coverage check cannot disagree.
+var entityPrefixes = knowledge.CapabilityEntities
 
 func (a *Adapter) visibleEntries(ctx context.Context) []*capability.Entry {
 	actor, _ := capability.ActorFrom(ctx)
@@ -137,11 +139,28 @@ func (a *Adapter) visibleKnowledge(ctx context.Context) (knowledge.Knowledge, er
 	if err != nil {
 		return out, err
 	}
+	known := map[string]bool{}
+	for _, e := range all.Entities {
+		known[e.Table] = true
+	}
 	allowed := map[string]bool{}
 	for _, e := range a.visibleEntries(ctx) {
+		matched := false
 		for prefix, entity := range entityPrefixes {
 			if strings.HasPrefix(e.Name, prefix+".") {
-				allowed[entity] = true
+				matched = true
+				if entity != "" {
+					allowed[entity] = true
+				}
+			}
+		}
+		// The system and monitor namespaces predate the naming convention, so
+		// they need the explicit table above. A module added later is expected
+		// to name its capabilities after its table — shop.order.list over
+		// shop_order — and is resolved here without editing this file.
+		if !matched {
+			if table, ok := knowledge.ConventionTable(e.Name); ok && known[table] {
+				allowed[table] = true
 			}
 		}
 	}

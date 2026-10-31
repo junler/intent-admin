@@ -1,3 +1,4 @@
+import { DetailDialog } from '@/components/common/DetailDialog';
 import {
   type ActionType,
   PageContainer,
@@ -7,21 +8,22 @@ import { history, useLocation } from '@umijs/max';
 import {
   App,
   Button,
-  Drawer,
   Empty,
   Input,
   Modal,
   Popconfirm,
   Space,
-  Spin,
   Tabs,
 } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { RiskColor, RiskLabel } from '@/api/types';
+import { AiFormHeading } from '@/components/ai/AiFormContext';
 import { useAiPanel } from '@/components/ai/AiPanel';
 import { type Plan, PlanCard } from '@/components/ai/PlanCard';
+import { Loading } from '@/components/common/Loading';
 import { usePageActive } from '@/contexts/ActivePageContext';
 import { t } from '@/i18n';
+import { useAiForm } from '@/hooks/useAiForm';
 import { api } from '@/utils/request';
 
 interface Session {
@@ -41,6 +43,16 @@ export default function SessionsPage() {
   const [renaming, setRenaming] = useState<Session>();
   const [title, setTitle] = useState('');
   const [saving, setSaving] = useState(false);
+  useAiForm({
+    id: `session.rename.${renaming?.id ?? ''}`,
+    title: t('重命名会话'),
+    fields: ['title'],
+    permission: 'ai:agent:use',
+    enabled: !!renaming,
+    fill: (values) => {
+      if (typeof values.title === 'string') setTitle(values.title.slice(0, 60));
+    },
+  });
   const show = useAiPanel((state) => state.show);
   const { message } = App.useApp();
   const planId = new URLSearchParams(location.search).get('planId');
@@ -90,6 +102,7 @@ export default function SessionsPage() {
             children: (
               <ProTable<Session>
                 rowKey="id"
+                pagination={{ hideOnSinglePage: true }}
                 search={false}
                 actionRef={sessionsRef}
                 request={async () => ({
@@ -155,6 +168,7 @@ export default function SessionsPage() {
             children: (
               <ProTable<Plan>
                 rowKey="id"
+                pagination={{ hideOnSinglePage: true }}
                 actionRef={plansRef}
                 search={false}
                 request={async () => ({
@@ -224,14 +238,14 @@ export default function SessionsPage() {
           },
         ]}
       />
-      <Drawer
+      <DetailDialog
         title={t('计划详情')}
         open={active && !!planId}
         width={1000}
         onClose={() => viewPlan()}
       >
         {loadingPlan ? (
-          <Spin />
+          <Loading panel />
         ) : plan ? (
           <PlanCard
             initialPlan={plan}
@@ -243,9 +257,18 @@ export default function SessionsPage() {
         ) : (
           <Empty description={t('计划不存在或当前账号无法访问')} />
         )}
-      </Drawer>
+      </DetailDialog>
       <Modal
-        title={t('重命名会话')}
+        title={
+          <AiFormHeading
+            title={t('重命名会话')}
+            form={{
+              title: t('重命名会话'),
+              mode: 'action',
+              formId: `ui.session.rename.${renaming?.id ?? ''}`,
+            }}
+          />
+        }
         open={active && !!renaming}
         onCancel={() => setRenaming(undefined)}
         confirmLoading={saving}

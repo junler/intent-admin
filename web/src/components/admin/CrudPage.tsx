@@ -1,23 +1,42 @@
 import {
   DeleteOutlined,
   DownloadOutlined,
+  DownOutlined,
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
 import { PageContainer, ProForm, ProTable } from '@ant-design/pro-components';
 import { history } from '@umijs/max';
-import { Button, Card, Empty, Form, Modal, Space, Tag, Typography } from 'antd';
-import { useCallback, useEffect, useId, useState } from 'react';
+import {
+  App,
+  Button,
+  Card,
+  Empty,
+  Form,
+  Modal,
+  Popover,
+  Space,
+  Tag,
+  Typography,
+} from 'antd';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Auth } from '@/components/auth/Auth';
+import { AiFormMarker, AiFormHeading } from '@/components/ai/AiFormContext';
 import ImportDialog from '@/components/import/ImportDialog';
 import { usePageActive, usePageLocation } from '@/contexts/ActivePageContext';
 import { getLocale, t } from '@/i18n';
+import { useAiForm } from '@/hooks/useAiForm';
+import { useFormDraftStore } from '@/stores/formDraft';
+import { useUserStore } from '@/stores/user';
+import { hasPermission } from '@/utils/permission';
 import { usePageContext } from '@/stores/pageContext';
 import { api, download, type PageData } from '@/utils/request';
 import {
   deletionArgs,
   editFormValues,
+  fillableValues,
+  matchesFormPath,
   rowsToTree,
   writeFormValues,
 } from './actions';
@@ -27,13 +46,8 @@ import { listCapability, readCrudQuery, writeCrudQuery } from './query';
 import type { CrudConfig, Field, Row, RowAction } from './types';
 import { useAdminAction } from './useAdminAction';
 
-const importBases = new Set([
-  '/system/user',
-  '/system/role',
-  '/system/config',
-  '/system/dict/data',
-  '/demo/item',
-]);
+/** Row actions shown inline before the rest collapse behind 更多. */
+const INLINE_ACTIONS = 2;
 
 export function CrudPage(cfg: CrudConfig) {
   const active = usePageActive();
@@ -52,6 +66,89 @@ export function CrudPage(cfg: CrudConfig) {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<React.Key[]>([]);
   const [editing, setEditing] = useState<Row | null>();
+  const draft = useFormDraftStore((state) => state.draft);
+  const owner = useUserStore((state) => state.identity?.user.userId);
+  const { message } = App.useApp();
+  const [aiAction, setAiAction] = useState<{
+    spec: RowAction;
+    row: Row;
+    values?: Row;
+  }>();
+  useEffect(() => {
+    if (
+      !active ||
+      !draft ||
+      draft.target.formId ||
+      draft.target.route !== cfg.base
+    )
+      return;
+    const pending = useFormDraftStore.getState().take(owner ?? 0, cfg.base);
+    if (!pending) return;
+    const permissions = useUserStore.getState().identity?.permissions ?? [];
+    const { mode, recordId, path } = pending.target;
+    if (editing !== undefined) {
+      const sameForm =
+        (mode === 'create' && editing === null) ||
+        (mode === 'update' &&
+          editing &&
+          String(editing[cfg.idKey]) === recordId);
+      const allowed = hasPermission(
+        permissions,
+        cfg.perm ? `${cfg.perm}:${mode === 'create' ? 'add' : 'edit'}` : '',
+      );
+      if (sameForm && allowed) {
+        const values = fillableValues(cfg.fields, pending.values, !!editing);
+        const combined = { ...form.getFieldsValue(), ...values };
+        form.setFieldsValue({
+          ...cfg.onValuesChange?.(values, combined),
+          ...values,
+        });
+      } else message.info(t('请先关闭当前编辑表单，再让 AI 填写'));
+      return;
+    }
+    void (async () => {
+      if (mode === 'create') {
+        if (
+          cfg.canCreate === false ||
+          !hasPermission(permissions, cfg.perm ? `${cfg.perm}:add` : '')
+        )
+          return;
+        await edit(undefined, pending.values);
+      } else if (mode === 'update') {
+        if (
+          cfg.canEdit === false ||
+          !recordId ||
+          !hasPermission(permissions, cfg.perm ? `${cfg.perm}:edit` : '')
+        )
+          return;
+        const row = await api.get<Row>(
+          `${cfg.base}/${encodeURIComponent(recordId)}`,
+        );
+        if (owner !== useUserStore.getState().identity?.user.userId) return;
+        await edit(row, pending.values);
+      } else {
+        if (!recordId || !path) return;
+        const row = await api.get<Row>(
+          `${cfg.base}/${encodeURIComponent(recordId)}`,
+        );
+        if (owner !== useUserStore.getState().identity?.user.userId) return;
+        const spec = cfg.actions?.find(
+          (action) =>
+            action.fields &&
+            !action.readOnly &&
+            hasPermission(permissions, action.perm ?? '') &&
+            matchesFormPath(
+              path,
+              typeof action.url === 'function'
+                ? action.url(row)
+                : (action.url ?? ''),
+            ),
+        );
+        if (spec) setAiAction({ spec, row, values: pending.values });
+        else message.info(t('此操作没有可填写的表单'));
+      }
+    })().catch(() => {});
+  }, [active, cfg.base, draft, owner, editing]);
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -68,6 +165,14 @@ export function CrudPage(cfg: CrudConfig) {
       setLoading(false);
     }
   }, [cfg.base, page, filters, JSON.stringify(cfg.params)]);
+  useAiForm({
+    id: `search.${cfg.base}`,
+    title: t('{title}：搜索表单', { title: cfg.title }),
+    fields: cfg.fields
+      .filter((field) => field.search)
+      .map((field) => field.name),
+    fill: (values) => search.setFieldsValue(values),
+  });
   const action = useAdminAction(() => {
     setSelected([]);
     void load().catch(() => {});
@@ -92,6 +197,14 @@ export function CrudPage(cfg: CrudConfig) {
   }, [active, load, syncedSearch, urlSearch]);
   usePageContext({
     capability: listCapability(cfg.base),
+    form:
+      editing === undefined
+        ? undefined
+        : {
+            route: cfg.base,
+            mode: editing ? 'update' : 'create',
+            recordId: editing ? String(editing[cfg.idKey]) : undefined,
+          },
     filters: { ...filters, ...cfg.params },
     selectedIds: selected.map((id) =>
       typeof id === 'number' ? id : String(id),
@@ -129,7 +242,7 @@ export function CrudPage(cfg: CrudConfig) {
         hash: pageLocation?.hash ?? location.hash,
       });
   }
-  async function edit(row?: Row) {
+  async function edit(row?: Row, prefill?: Row) {
     let values = row
       ? { ...row }
       : Object.fromEntries(
@@ -148,6 +261,15 @@ export function CrudPage(cfg: CrudConfig) {
       }
     }
     values = editFormValues(cfg.fields, values);
+    if (prefill) {
+      const draftValues = fillableValues(cfg.fields, prefill, !!row);
+      const combined = { ...values, ...draftValues };
+      values = {
+        ...combined,
+        ...cfg.onValuesChange?.(draftValues, combined),
+        ...draftValues,
+      };
+    }
     form.resetFields();
     form.setFieldsValue(values);
     setEditing(row ?? null);
@@ -193,6 +315,8 @@ export function CrudPage(cfg: CrudConfig) {
       args: deletionArgs(cfg.idKey, ids),
       previewUrl: cfg.removePreviewUrl ?? `${cfg.base}/remove/preview`,
     });
+  // Two row actions read fine inline; more than that becomes a wall of links.
+  const collapseActions = (cfg.actions?.length ?? 0) > INLINE_ACTIONS;
   const columns = [
     ...cfg.fields
       .filter(
@@ -224,10 +348,12 @@ export function CrudPage(cfg: CrudConfig) {
     {
       title: t('操作'),
       key: 'actions',
-      width: Math.max(
-        190,
-        Math.min(540, ((cfg.actions?.length ?? 0) + 2) * 70),
-      ),
+      // Edit and delete stay inline; anything beyond INLINE_ACTIONS collapses
+      // behind 更多, so the column keeps a predictable width instead of
+      // growing a wall of blue links.
+      width: collapseActions
+        ? 190
+        : Math.max(190, ((cfg.actions?.length ?? 0) + 2) * 70),
       fixed: 'right' as const,
       render: (_: unknown, row: Row) => (
         <Space wrap size={2}>
@@ -238,14 +364,37 @@ export function CrudPage(cfg: CrudConfig) {
               </Button>
             </Auth>
           )}
-          {cfg.actions?.map((spec) => (
-            <ActionButton
-              key={spec.label}
-              spec={spec}
-              row={row}
-              reload={load}
-            />
-          ))}
+          {collapseActions ? (
+            <Popover
+              trigger="click"
+              placement="bottomRight"
+              content={
+                <div className="intent-row-actions">
+                  {cfg.actions?.map((spec) => (
+                    <ActionButton
+                      key={spec.label}
+                      spec={spec}
+                      row={row}
+                      reload={load}
+                    />
+                  ))}
+                </div>
+              }
+            >
+              <Button size="small" type="link">
+                {t('更多')} <DownOutlined className="intent-row-more-caret" />
+              </Button>
+            </Popover>
+          ) : (
+            cfg.actions?.map((spec) => (
+              <ActionButton
+                key={spec.label}
+                spec={spec}
+                row={row}
+                reload={load}
+              />
+            ))
+          )}
           {cfg.canDelete !== false && (
             <Auth perm={cfg.perm ? `${cfg.perm}:remove` : ''}>
               <Button
@@ -265,11 +414,12 @@ export function CrudPage(cfg: CrudConfig) {
   const toolbar = [
     <Space wrap key="actions" className="intent-table-actions">
       {cfg.extra}
-      {importBases.has(cfg.base) && (
+      {cfg.import && (
         <ImportDialog
           base={cfg.base}
           permission={
-            cfg.base === '/demo/item' ? 'demo:item:edit' : `${cfg.perm}:add`
+            (typeof cfg.import === 'object' && cfg.import.permission) ||
+            `${cfg.perm}:add`
           }
           onSuccess={() => {
             setSelected([]);
@@ -316,6 +466,11 @@ export function CrudPage(cfg: CrudConfig) {
             }}
           >
             <Fields
+              aiForm={{
+                title: t('{title}：搜索表单', { title: cfg.title }),
+                mode: 'action',
+                formId: `ui.search.${cfg.base}`,
+              }}
               fields={searchFields.map((field) => ({
                 ...field,
                 form: true,
@@ -326,6 +481,13 @@ export function CrudPage(cfg: CrudConfig) {
             />
             <Form.Item className="intent-search-buttons">
               <Space>
+                <AiFormMarker
+                  form={{
+                    title: t('{title}：搜索表单', { title: cfg.title }),
+                    mode: 'action',
+                    formId: `ui.search.${cfg.base}`,
+                  }}
+                />
                 <Button
                   type="primary"
                   htmlType="submit"
@@ -406,6 +568,7 @@ export function CrudPage(cfg: CrudConfig) {
             cfg.tree
               ? false
               : {
+                  hideOnSinglePage: true,
                   current: page.pageNum,
                   pageSize: page.pageSize,
                   total,
@@ -419,16 +582,31 @@ export function CrudPage(cfg: CrudConfig) {
       </div>
       <Modal
         title={
-          editing
-            ? t('编辑{title}', { title: cfg.title })
-            : t('新增{title}', { title: cfg.title })
+          <AiFormHeading
+            title={
+              editing
+                ? t('编辑{title}', { title: cfg.title })
+                : t('新增{title}', { title: cfg.title })
+            }
+            form={{
+              title: cfg.title,
+              mode: editing ? 'update' : 'create',
+              route: cfg.base,
+              recordId: editing ? String(editing[cfg.idKey]) : undefined,
+            }}
+          />
         }
         className="intent-editor-modal"
+        afterClose={() => form.resetFields()}
         open={active && editing !== undefined}
-        onCancel={() => setEditing(undefined)}
+        onCancel={() => {
+          if (!action.executing) setEditing(undefined);
+        }}
         onOk={() => void save().catch(() => {})}
         width={760}
-        okText={t('预览变更')}
+        okText={t('保存')}
+        confirmLoading={action.executing}
+        cancelButtonProps={{ disabled: action.executing }}
         destroyOnHidden
       >
         <ProForm
@@ -442,11 +620,34 @@ export function CrudPage(cfg: CrudConfig) {
           }}
         >
           <div className="intent-form-grid">
-            <Fields fields={cfg.fields} editing={!!editing} />
+            <Fields
+              fields={cfg.fields}
+              editing={!!editing}
+              aiForm={{
+                title: cfg.title,
+                mode: editing ? 'update' : 'create',
+                route: cfg.base,
+                recordId: editing ? String(editing[cfg.idKey]) : undefined,
+              }}
+            />
           </div>
           {cfg.editorExtra?.(form, editing ?? null)}
         </ProForm>
       </Modal>
+      {aiAction && (
+        <ActionButton
+          spec={aiAction.spec}
+          row={aiAction.row}
+          reload={load}
+          prefill={aiAction.values}
+          onConsumed={() =>
+            setAiAction((current) =>
+              current ? { ...current, values: undefined } : current,
+            )
+          }
+          onClosed={() => setAiAction(undefined)}
+        />
+      )}
       {action.modal}
     </PageContainer>
   );
@@ -479,18 +680,41 @@ function ActionButton({
   spec,
   row,
   reload,
+  prefill,
+  onConsumed,
+  onClosed,
 }: {
   spec: RowAction;
   row: Row;
   reload: () => Promise<void>;
+  prefill?: Row;
+  onConsumed?: () => void;
+  onClosed?: () => void;
 }) {
   const active = usePageActive();
   const formName = useId().replace(/:/g, '');
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [form] = Form.useForm();
-  const action = useAdminAction(() => void reload().catch(() => {}));
+  useAiForm({
+    id: `action.${formName}`,
+    title: spec.label,
+    fields: (spec.fields ?? []).map((field) => field.name),
+    permission: spec.perm,
+    enabled: open && !spec.readOnly,
+    fill: (values) =>
+      form.setFieldsValue(fillableValues(spec.fields ?? [], values, false)),
+  });
+  const previewing = useRef(false);
+  const action = useAdminAction(
+    () => void reload().catch(() => {}),
+    () => {
+      previewing.current = false;
+      onClosed?.();
+    },
+  );
   async function execute(values: Row = {}) {
+    previewing.current = true;
     setOpen(false);
     const executeAction = spec.execute;
     const url =
@@ -508,7 +732,10 @@ function ActionButton({
       result: spec.result,
     });
   }
-  async function click() {
+  useEffect(() => {
+    if (prefill) void click(prefill).catch(() => {});
+  }, [prefill]);
+  async function click(draftValues?: Row) {
     if (spec.readOnly) {
       setBusy(true);
       try {
@@ -532,8 +759,13 @@ function ActionButton({
     setBusy(true);
     try {
       form.resetFields();
-      form.setFieldsValue(spec.defaults ? await spec.defaults(row) : row);
+      const defaults = spec.defaults ? await spec.defaults(row) : row;
+      form.setFieldsValue({
+        ...editFormValues(spec.fields ?? [], defaults),
+        ...fillableValues(spec.fields ?? [], draftValues ?? {}, false),
+      });
       setOpen(true);
+      onConsumed?.();
     } finally {
       setBusy(false);
     }
@@ -541,18 +773,33 @@ function ActionButton({
   return (
     <Auth perm={spec.perm ?? ''}>
       <Button
+        style={onClosed ? { display: 'none' } : undefined}
         type="link"
         size="small"
         danger={spec.danger}
-        loading={busy}
+        loading={busy || action.executing}
         onClick={() => void click().catch(() => {})}
       >
         {spec.label}
       </Button>
       <Modal
         className="intent-editor-modal"
-        title={spec.label}
-        okText={t('预览变更')}
+        title={
+          <AiFormHeading
+            title={spec.label}
+            form={{
+              title: spec.label,
+              mode: 'action',
+              formId: `ui.action.${formName}`,
+            }}
+          />
+        }
+        afterClose={() => {
+          form.resetFields();
+          if (!previewing.current) onClosed?.();
+        }}
+        okText={t('确定')}
+        confirmLoading={action.executing}
         open={active && open}
         onCancel={() => setOpen(false)}
         onOk={() =>
@@ -569,7 +816,14 @@ function ActionButton({
           layout="vertical"
           submitter={false}
         >
-          <Fields fields={spec.fields ?? []} />
+          <Fields
+            fields={spec.fields ?? []}
+            aiForm={{
+              title: spec.label,
+              mode: 'action',
+              formId: `ui.action.${formName}`,
+            }}
+          />
         </ProForm>
       </Modal>
       {action.modal}

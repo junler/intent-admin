@@ -18,7 +18,13 @@ import { getLocale, t } from '@/i18n';
 import { useUserStore } from '@/stores/user';
 import { ApiError, api, Code } from '@/utils/request';
 import { PlanApprovalControls } from './PlanApproval';
-import { managementURL, type Plan, planState } from './state';
+import {
+  completedPlanEvidence,
+  managementURL,
+  type Plan,
+  planState,
+} from './state';
+import { PageSuggestions } from './PageSuggestions';
 
 export type { Plan, PlanStep } from './state';
 
@@ -37,10 +43,12 @@ const statusLabels: Record<string, string> = {
 export function PlanCard({
   initialPlan,
   onUpdated,
+  onNavigate,
   readOnly = false,
 }: {
   initialPlan: Plan;
   onUpdated?: (plan: Plan) => void;
+  onNavigate?: () => void;
   readOnly?: boolean;
 }) {
   const [plan, setPlan] = useState(initialPlan);
@@ -127,6 +135,7 @@ export function PlanCard({
   const manual = state.exceeded || riskBlocked;
   return (
     <Card
+      className="intent-plan-card"
       size="small"
       title={t('操作计划')}
       extra={
@@ -177,25 +186,27 @@ export function PlanCard({
         />
       )}
       <Collapse
+        className="intent-plan-steps"
+        size="small"
         defaultActiveKey={plan.steps.slice(0, 1).map((step) => step.seq)}
         items={plan.steps.map((step) => ({
           key: step.seq,
           label: (
             <Space wrap>
               <Tag>{statusLabels[step.status] ?? step.status}</Tag>
-              {step.seq + 1}. {step.note || step.capability}
+              <span title={step.capability}>
+                {step.seq + 1}.{' '}
+                {step.note || step.preview?.summary || step.capability}
+              </span>
             </Space>
           ),
           children: (
             <>
-              <Typography.Paragraph code>
-                {step.capability}
-              </Typography.Paragraph>
               {step.error && (
                 <Alert type="error" title={step.error} className="my-2" />
               )}
               {step.preview ? (
-                <DiffTable preview={step.preview} />
+                <DiffTable preview={step.preview} layout="cards" />
               ) : (
                 <Typography.Paragraph type="secondary">
                   {t('只读查询步骤。')}
@@ -248,19 +259,21 @@ export function PlanCard({
         <Space wrap className="mt-4">
           {state.executable && !stale && !riskBlocked && !plan.approval && (
             <>
-              <Radio.Group
-                value={mode}
-                disabled={busy}
-                onChange={(e) => setMode(e.target.value)}
-                options={[
-                  {
-                    value: 'all',
-                    label: t('确认整个计划'),
-                    disabled: state.requiresStepwise,
-                  },
-                  { value: 'stepwise', label: t('逐步确认') },
-                ]}
-              />
+              {plan.steps.length > 1 && (
+                <Radio.Group
+                  value={mode}
+                  disabled={busy}
+                  onChange={(e) => setMode(e.target.value)}
+                  options={[
+                    {
+                      value: 'all',
+                      label: t('确认整个计划'),
+                      disabled: state.requiresStepwise,
+                    },
+                    { value: 'stepwise', label: t('逐步确认') },
+                  ]}
+                />
+              )}
               <Button
                 type="primary"
                 loading={busy}
@@ -312,6 +325,10 @@ export function PlanCard({
           )}
         </Space>
       )}
+      <PageSuggestions
+        evidence={completedPlanEvidence(plan)}
+        onNavigate={onNavigate}
+      />
     </Card>
   );
 }

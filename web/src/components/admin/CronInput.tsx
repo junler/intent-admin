@@ -1,5 +1,7 @@
 import { Button, Form, Input, Modal, Select, Space, Typography } from 'antd';
-import { useState } from 'react';
+import { useId, useState } from 'react';
+import { AiFormScope, AiFormMarker } from '@/components/ai/AiFormContext';
+import { useAiForm } from '@/hooks/useAiForm';
 import { usePageActive } from '@/contexts/ActivePageContext';
 import { t } from '@/i18n';
 import { validCron } from './cron';
@@ -37,6 +39,14 @@ export function CronInput({
     t('月（1–12）'),
     t('周（0–6 / MON–SUN）'),
   ];
+  const aiFormId = useId();
+  useAiForm({
+    id: `cron.${aiFormId}`,
+    title: t('生成标准五字段 cron'),
+    fields: names,
+    enabled: open,
+    fill: (values) => form.setFieldsValue(values),
+  });
   const generated = names.map((name) => watched[name] || '*').join(' ');
   function show() {
     form.setFieldsValue(
@@ -79,13 +89,22 @@ export function CronInput({
             '* 表示每个值；支持逗号列表、范围和步长，例如 1,15、MON-FRI、*/5。执行时区由服务配置决定。',
           )}
         </Typography.Paragraph>
-        <Form form={form} layout="vertical">
-          {names.map((name, index) => (
-            <Form.Item key={name} label={titles[index]} name={name}>
-              <Input placeholder="*" />
-            </Form.Item>
-          ))}
-        </Form>
+        <AiFormScope
+          value={{
+            title: t('生成标准五字段 cron'),
+            mode: 'action',
+            formId: `ui.cron.${aiFormId}`,
+          }}
+        >
+          <Form form={form} layout="vertical">
+            <AiFormMarker />
+            {names.map((name, index) => (
+              <Form.Item key={name} label={titles[index]} name={name}>
+                <Input placeholder="*" />
+              </Form.Item>
+            ))}
+          </Form>
+        </AiFormScope>
         <Typography.Paragraph copyable code>
           {generated}
         </Typography.Paragraph>

@@ -1,13 +1,11 @@
 import { history } from '@umijs/max';
-import { Alert, App, Button, Modal, Space } from 'antd';
-import { useState } from 'react';
-import type { Preview } from '@/api/types';
-import { DiffTable } from '@/components/diff/DiffTable';
+import { App, Button, Space } from 'antd';
+import { useRef, useState } from 'react';
 import { usePageActive } from '@/contexts/ActivePageContext';
 import { invalidateDicts } from '@/hooks/useDict';
 import { usePerm } from '@/hooks/usePerm';
 import { t } from '@/i18n';
-import { ApiError, api, Code, request } from '@/utils/request';
+import { ApiError, Code, request } from '@/utils/request';
 import type { Row } from './types';
 
 interface Command {
@@ -20,37 +18,16 @@ interface Command {
   result?: (value: any) => void;
   after?: () => void;
 }
-export function useAdminAction(after?: () => void) {
+export function useAdminAction(after?: () => void, onClosed?: () => void) {
   const active = usePageActive();
   const canViewChanges = usePerm('system:changeset:list');
-  const { message, modal: dialogs } = App.useApp();
-  const [command, setCommand] = useState<Command>();
-  const [preview, setPreview] = useState<Preview>();
-  const [loading, setLoading] = useState(false);
+  const { message } = App.useApp();
+  const pending = useRef(false);
   const [executing, setExecuting] = useState(false);
-  async function run(next: Command) {
-    setCommand(next);
-    setPreview(undefined);
-    setLoading(true);
-    try {
-      if (next.previewUrl)
-        setPreview(await api.post<Preview>(next.previewUrl, next.args));
-      else
-        setPreview({
-          summary: next.title,
-          affected: 1,
-          skipped: 0,
-          reversible: false,
-          warnings: [t('此操作执行后可能无法撤销，请确认。')],
-        });
-    } catch {
-      setCommand(undefined);
-    } finally {
-      setLoading(false);
-    }
-  }
-  async function confirm() {
-    if (!command) return;
+  // Human page submissions execute directly through the ordinary HTTP capability.
+  async function run(command: Command) {
+    if (!active || pending.current) return;
+    pending.current = true;
     setExecuting(true);
     try {
       const value = await (command.execute
@@ -90,44 +67,20 @@ export function useAdminAction(after?: () => void) {
           </Space>
         ),
       });
-      setCommand(undefined);
       command.after?.();
       after?.();
     } catch (error) {
-      if (error instanceof ApiError && error.code === Code.StaleData) {
-        dialogs.warning({
-          title: t('数据已变化'),
-          content: t('请重新预览并确认最新的变更范围。'),
-          onOk: () => run(command),
-        });
-      } else if (
+      if (
         error instanceof ApiError &&
-        error.code === Code.RiskExceeded
+        (error.code === Code.StaleData || error.code === Code.RiskExceeded)
       ) {
-        dialogs.info({ title: t('风险上限限制'), content: error.message });
+        message.error(error.message);
       }
     } finally {
+      pending.current = false;
       setExecuting(false);
+      onClosed?.();
     }
   }
-  const modal = (
-    <Modal
-      title={command?.title}
-      open={active && !!command}
-      onCancel={() => !executing && setCommand(undefined)}
-      onOk={() => void confirm()}
-      confirmLoading={executing}
-      okButtonProps={{ disabled: loading || !preview }}
-      cancelButtonProps={{ disabled: executing }}
-      width={850}
-      destroyOnHidden
-    >
-      {loading ? (
-        <Alert type="info" title={t('正在生成变更预览…')} />
-      ) : (
-        preview && <DiffTable preview={preview} />
-      )}
-    </Modal>
-  );
-  return { run, modal };
+  return { run, executing, modal: null };
 }

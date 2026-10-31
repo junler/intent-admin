@@ -3,8 +3,10 @@
 // delete with preview and undo.
 //
 // It is also the worked example referenced by CONTRIBUTING.md — adding a real
-// module looks exactly like this. Delete the package once the system modules
-// (plan Phase 3) are in place.
+// module looks exactly like this. A new project can keep it while learning the
+// Capability layer and then remove it; see "Remove the example module" in
+// CONTRIBUTING.md for the exact list, and `intent-admin demo clear` to drop
+// its sample rows first.
 package demo
 
 import (
@@ -19,6 +21,7 @@ import (
 	"github.com/junler/intent-admin/internal/model"
 	"github.com/junler/intent-admin/internal/pkg/errcode"
 	"github.com/junler/intent-admin/internal/service"
+	"github.com/junler/intent-admin/internal/task"
 )
 
 const (
@@ -38,9 +41,17 @@ var dictFields = map[string]string{
 	"status": "sys_normal_disable",
 }
 
-// Register wires the demo capabilities. Called from bootstrap.
-func Register(db *gorm.DB) {
+// Register wires the demo capabilities and its sample scheduler jobs. Called
+// from bootstrap; this and the migration are the module's only attachments to
+// the rest of the system, so a new project can drop internal/feature/demo,
+// internal/service/demo.go, internal/model/demo_item.go, the page and the
+// migration, delete this one call, and have a working console.
+func Register(db *gorm.DB, tasks *task.Runtime) {
 	registerCreate(db)
+	if tasks != nil {
+		tasks.InvokeHandler("demo:noParams", "无参数演示任务", "demo.item.list", map[string]any{})
+		tasks.InvokeHandler("demo:withParams", "按编号修改演示条目状态", "demo.item.update", map[string]any{"itemId": 0, "status": "1"})
+	}
 	svc := service.NewDemoService(db)
 	tbl := undo.Table{Name: table, IDField: "item_id"}
 

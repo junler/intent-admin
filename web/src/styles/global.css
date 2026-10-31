@@ -60,6 +60,18 @@ body {
 .ant-pro-layout .ant-pro-sider .ant-menu {
   padding-inline: 8px;
 }
+/* Collapsed to an icon rail, that 8px inset pushes every icon off-centre.
+ * The rail is 64px wide, so the icons belong at 32. */
+.ant-pro-layout .ant-pro-sider-collapsed .ant-menu {
+  padding-inline: 0;
+}
+.ant-pro-layout .ant-pro-sider-collapsed .ant-menu-item,
+.ant-pro-layout .ant-pro-sider-collapsed .ant-menu-submenu-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 0;
+}
 .ant-pro-layout .ant-pro-sider .ant-menu-item,
 .ant-pro-layout .ant-pro-sider .ant-menu-submenu-title {
   margin-block: 5px;
@@ -71,6 +83,24 @@ body {
 .ant-pro-layout .ant-pro-sider .ant-menu-item-icon,
 .ant-pro-layout .ant-pro-sider .anticon {
   font-size: 16px;
+}
+.intent-submenu-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.intent-submenu-icon {
+  display: inline-flex;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+.intent-submenu-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ant-pro-layout .ant-pro-global-header {
   border-bottom: 1px solid var(--intent-border);
@@ -89,9 +119,15 @@ body {
   padding-block: 4px 22px;
 }
 .ant-pro-page-container .ant-page-header-heading-title {
-  font-size: 24px;
-  font-weight: 650;
-  letter-spacing: -0.5px;
+  display: none;
+}
+/* Collapse title-only rows while keeping descriptions and page actions. */
+.ant-pro-page-container
+  .ant-page-header-heading:has(
+    > .ant-page-header-heading-left:only-child
+      > .ant-page-header-heading-title:only-child
+  ) {
+  display: none;
 }
 .ant-pro-page-container .ant-page-header-heading-sub-title {
   font-size: 13px;
@@ -107,9 +143,7 @@ body {
 .ant-card .ant-card-head {
   border-bottom-color: #f0f3f8;
 }
-/* The Omnibox is a command surface, not a search field: a quiet pill at rest
- * that resolves into a focused command bar, carrying a chip for whatever the
- * current page has checked. The focus ring is the one gradient in the app. */
+/* A compact AI entry point with optional context from the current page. */
 .intent-header-search {
   flex: 1;
   min-width: 160px;
@@ -124,7 +158,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: min(100%, 520px);
+  width: min(100%, 360px);
   height: 38px;
   padding-inline: 13px 6px;
   border: 1px solid var(--omnibox-edge);
@@ -132,42 +166,26 @@ body {
   background: #f6f8fc;
   transition:
     background 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.22s ease;
+    border-color 0.2s ease;
+  cursor: pointer;
+  text-align: start;
+  outline: none;
+}
+.intent-omnibox-placeholder {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: #9aa6b5;
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .intent-omnibox:hover:not(.intent-omnibox-disabled) {
   background: #fff;
   border-color: #d2dcec;
 }
-.intent-omnibox-focused {
-  background: #fff;
-  border-color: transparent;
-  box-shadow:
-    0 0 0 3px rgb(79 70 229 / 10%),
-    0 8px 20px -10px rgb(37 99 235 / 40%);
-}
-/* Gradient hairline, drawn as a masked ring so it replaces the border. */
-.intent-omnibox::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  padding: 1px;
-  border-radius: inherit;
-  background: linear-gradient(100deg, #6366f1, #2563eb 55%, #0ea5e9);
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.22s ease;
-}
-.intent-omnibox-focused::after {
-  opacity: 1;
+.intent-omnibox:focus-visible {
+  border-color: #94a3b8;
 }
 .intent-omnibox-mark {
   flex: none;
@@ -177,9 +195,6 @@ body {
   opacity: 0.75;
   transition: opacity 0.2s ease;
 }
-.intent-omnibox-focused .intent-omnibox-mark {
-  opacity: 1;
-}
 .intent-omnibox .ant-input {
   background: transparent;
   font-size: 13px;
@@ -188,6 +203,13 @@ body {
 .intent-omnibox .ant-input-affix-wrapper,
 .intent-omnibox .ant-input-outlined {
   padding: 0;
+}
+/* Custom input surfaces provide their own focus ring on the outer container.
+ * Ant Design's borderless focus-visible outline would draw a second ring. */
+:is(.intent-omnibox, .intent-ai-composer) .ant-input,
+:is(.intent-omnibox, .intent-ai-composer) .ant-input-affix-wrapper {
+  outline: none;
+  box-shadow: none;
 }
 .intent-omnibox-disabled,
 .intent-omnibox-disabled:hover {
@@ -273,6 +295,271 @@ body {
 .intent-omnibox-compact {
   width: 100%;
 }
+/* Modal and detail surfaces stay within the viewport; only their bodies scroll. */
+.ant-modal {
+  padding-bottom: 0;
+}
+.ant-modal .ant-modal-container {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 64px);
+}
+.ant-modal .ant-modal-header,
+.ant-modal .ant-modal-footer {
+  flex-shrink: 0;
+}
+.ant-modal .ant-modal-body {
+  min-height: 0;
+  overflow: auto;
+}
+.intent-detail-modal .ant-modal-header {
+  padding-inline-end: 32px;
+}
+.intent-detail-modal-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.intent-detail-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* Keep conversation controls and the composer visible in the side panel. */
+.intent-ai-drawer .ant-drawer-header {
+  flex-shrink: 0;
+}
+.intent-ai-drawer .ant-drawer-title {
+  min-width: 0;
+}
+.intent-ai-drawer-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.intent-ai-actions {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+}
+.intent-ai-drawer .ant-drawer-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+.intent-ai-drawer .ant-drawer-body > * {
+  flex-shrink: 0;
+}
+.intent-ai-drawer .intent-ai-messages {
+  flex: 1;
+  min-height: 120px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+/* Plan previews use record cards so narrow chat panels never squeeze a table. */
+.intent-plan-card,
+.intent-plan-steps,
+.intent-diff {
+  min-width: 0;
+  max-width: 100%;
+}
+.intent-plan-card > .ant-card-body {
+  padding: 16px;
+}
+.intent-plan-steps .ant-collapse-body {
+  padding: 12px;
+}
+.intent-diff-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  container-type: inline-size;
+}
+.intent-diff-record {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--intent-border);
+  border-radius: 10px;
+  background: #fff;
+}
+.intent-diff-record-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+.intent-diff-record-header .ant-tag {
+  margin-inline-end: 0;
+}
+.intent-diff-record-id {
+  font-size: 12px;
+}
+.intent-diff-fields {
+  margin: 0;
+}
+.intent-diff-details > summary {
+  cursor: pointer;
+  color: #2563eb;
+  font-size: 13px;
+}
+.intent-diff-details[open] > summary {
+  margin-bottom: 10px;
+}
+.intent-diff-field {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px 12px;
+  padding-block: 10px;
+  border-top: 1px solid #f0f3f8;
+}
+.intent-diff-field dt {
+  color: var(--intent-muted);
+  font-size: 13px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+.intent-diff-field dd {
+  min-width: 0;
+  margin: 0;
+}
+.intent-diff-value {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.intent-diff-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.intent-diff-comparison .intent-diff-value {
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+.intent-diff-value-before {
+  background: #f6f8fb;
+}
+.intent-diff-value-after {
+  background: #edf6ff;
+}
+.intent-diff-value-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--intent-muted);
+  font-size: 12px;
+}
+.intent-diff-json {
+  max-height: 240px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: 6px;
+  background: #f6f8fb;
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@container (width < 440px) {
+  .intent-diff-field,
+  .intent-diff-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* User bubbles align right; assistant content keeps room for plans and tables. */
+.intent-ai-message {
+  min-width: 0;
+  padding: 8px;
+}
+.intent-ai-message-user {
+  width: fit-content;
+  max-width: 85%;
+  margin-inline-start: auto;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #eff6ff;
+}
+/* The composer echoes the header command bar, and controls have visible labels. */
+.intent-ai-controls {
+  display: flex;
+  flex: 1 1 420px;
+  min-width: 0;
+  font-weight: 400;
+  align-items: center;
+  gap: 12px 24px;
+}
+.intent-ai-field {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.intent-ai-field-label {
+  flex-shrink: 0;
+  color: var(--intent-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.intent-ai-field .ant-select {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 100px;
+  max-width: 100%;
+}
+.intent-ai-composer {
+  padding: 10px 12px 8px;
+  border: 1px solid var(--omnibox-edge, #e4eaf3);
+  border-radius: 12px;
+  background: #f8fafd;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.22s ease;
+}
+.intent-ai-composer-focused {
+  background: #fff;
+  border-color: #c7d2fe;
+  box-shadow: 0 0 0 3px rgb(79 70 229 / 10%);
+}
+.intent-ai-composer .ant-input {
+  background: transparent;
+  padding: 0;
+}
+.intent-ai-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.intent-ai-composer-hint {
+  margin-inline-end: auto;
+  color: #9aa6b5;
+  font-size: 11px;
+}
+@media (width < 640px) {
+  .intent-ai-controls {
+    flex-wrap: wrap;
+  }
+  .intent-ai-composer-hint {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .intent-ai-composer {
+    transition: none;
+  }
+}
 .intent-omnibox-hint-rows {
   margin-top: 6px;
   padding-top: 6px;
@@ -288,7 +575,6 @@ body {
 }
 @media (prefers-reduced-motion: reduce) {
   .intent-omnibox,
-  .intent-omnibox::after,
   .intent-omnibox-mark,
   .intent-omnibox-send {
     transition: none;
@@ -343,13 +629,74 @@ body {
   border-inline-start: 1px solid #dce2eb;
   padding-inline-start: 12px;
 }
-.intent-page-loading {
-  min-height: 50vh;
+.intent-page-loading,
+.intent-loading {
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   gap: 20px;
+}
+/* Fill the content area. At 50vh the footer ended up tucked directly under
+ * the spinner instead of resting at the bottom of the page. */
+.intent-loading {
+  min-height: calc(100vh - var(--app-header-height) - 150px);
+}
+/* Booting the workspace happens before the menu arrives, so the layout behind
+ * this is a shell with an empty sider. Cover it rather than show it half
+ * built; it is replaced by the real layout as soon as the store is ready. */
+.intent-page-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: #f4f7fb;
+}
+/* Inside a drawer or modal the body is already bounded; a 50vh block would
+ * push the panel's own content out of view. */
+.intent-loading-panel {
+  min-height: 160px;
+  gap: 14px;
+}
+/* Overflow row actions: one per line, left aligned, so the popover reads as a
+ * menu rather than a second row of links. */
+.intent-row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 128px;
+  margin: -4px -8px;
+}
+.intent-row-actions .ant-btn {
+  justify-content: flex-start;
+  height: 32px;
+  padding-inline: 12px;
+  border-radius: 6px;
+}
+.intent-row-actions .ant-btn:hover {
+  background: #f4f7fb;
+}
+.intent-row-more-caret {
+  font-size: 10px;
+  margin-inline-start: 2px;
+}
+
+/* The collapse toggle defaults to 18px from the sider top and 13px outside its
+ * right edge, which lands it directly on the content's breadcrumb line. Move
+ * it to the foot of the rail, where it is clear of page content entirely. */
+.ant-pro-layout .ant-pro-sider-collapsed-button {
+  inset-block-start: auto;
+  inset-block-end: 22px;
+  background: #fff;
+  border: 1px solid var(--intent-border);
+  color: var(--intent-muted);
+  box-shadow: 0 2px 8px -2px rgb(23 43 77 / 12%);
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+.ant-pro-layout .ant-pro-sider-collapsed-button:hover {
+  color: #2563eb;
+  border-color: #c7d6ef;
 }
 
 /* Search, table, and editor spacing shared by administration modules. */
@@ -382,7 +729,13 @@ body {
   width: 100%;
   min-width: 0;
 }
+/* Pin the actions to the last column instead of letting them auto-place.
+ * Auto-placement puts them at the start of a new row whenever the field count
+ * is a multiple of the column count — three fields in three columns, four in
+ * four — which left a wide empty gap beside them. */
 .intent-search-form .intent-search-buttons {
+  grid-column: -2 / -1;
+  justify-self: end;
   padding-top: 28px;
   align-self: start;
 }
@@ -847,12 +1200,6 @@ body {
     overflow: visible;
     row-gap: 6px;
   }
-  .ant-pro-page-container .ant-page-header-heading-title {
-    white-space: normal;
-    overflow: visible;
-    text-overflow: clip;
-    line-height: 1.4;
-  }
   .ant-pro-page-container .ant-page-header-heading-sub-title {
     flex-basis: 100%;
     max-width: 100%;
@@ -867,9 +1214,6 @@ body {
     align-items: flex-start;
     flex-wrap: wrap;
     row-gap: 12px;
-  }
-  .ant-pro-page-container .ant-page-header-heading-title {
-    font-size: 21px;
   }
   .ant-pro-page-container .ant-page-header-heading-extra {
     margin-inline-start: 0;
@@ -950,4 +1294,17 @@ body {
   .intent-login-panel-footer {
     font-size: 10px;
   }
+}
+
+/* Portal-mounted so the global AI entry stays above business dialog masks. */
+.intent-ai-floating-entry {
+  right: max(24px, env(safe-area-inset-right));
+  bottom: max(24px, env(safe-area-inset-bottom));
+}
+.intent-ai-navigation-toast {
+  margin-bottom: 72px;
+}
+
+.ant-notification:has(.intent-ai-navigation-toast) {
+  z-index: 10000;
 }

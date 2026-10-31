@@ -1,11 +1,13 @@
-// Package aitool gives the model five narrow tools. Only the plan engine can
+// Package aitool gives the model narrow tools. Only the plan engine can
 // perform writes; no tool in this package directly executes a mutating entry.
 package aitool
 
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/cloudwego/eino/components/tool"
@@ -27,16 +29,21 @@ type Knowledge interface {
 type Emit func(kind string, data any)
 
 type Tools struct {
-	Plans       PlanEngine
-	Knowledge   Knowledge
-	SessionID   string
-	PageContext map[string]any
-	Intent      string
-	MaxCalls    int
-	Emit        Emit
-	calls       atomic.Int64
-	Proposed    atomic.Bool
-	Evidence    []capability.Evidence
+	Navigation   Navigation
+	Plans        PlanEngine
+	Knowledge    Knowledge
+	SessionID    string
+	PageContext  map[string]any
+	Intent       string
+	MaxCalls     int
+	Emit         Emit
+	calls        atomic.Int64
+	Proposed     atomic.Bool
+	Navigated    atomic.Bool
+	FilledForm   atomic.Bool
+	FormPassword string
+	FormSecrets  []string
+	Evidence     []capability.Evidence
 }
 
 type keywordInput struct {
@@ -60,7 +67,16 @@ type proposalStep struct {
 type proposalInput struct {
 	Intent  string         `json:"intent"`
 	Steps   []proposalStep `json:"steps"`
-	OnError string         `json:"onError,omitempty"`
+	OnError string         `json:"onError,omitempty" jsonschema:"enum=stop,enum=continue,default=stop,description=计划步骤失败策略。默认 stop 表示失败后停止；仅在用户明确要求失败后继续时填写 continue。不是任务处理器或定时任务参数"`
+}
+
+// Model-generated control values fail closed: only an explicit continue may
+// relax the default stop-on-error policy. Core plan validation stays strict.
+func proposalErrorPolicy(value string) string {
+	if strings.ToLower(strings.TrimSpace(value)) == "continue" {
+		return "continue"
+	}
+	return "stop"
 }
 
 func (t *Tools) before(ctx context.Context, name string) error {
@@ -73,6 +89,12 @@ func (t *Tools) before(ctx context.Context, name string) error {
 	}
 	if t.calls.Add(1) > int64(max) {
 		return errcode.BadRequestf("本轮工具调用超过上限 %d", max)
+	}
+	if t.FilledForm.Load() {
+		return errcode.BadRequestf("表单已填写，请等待用户确认提交")
+	}
+	if t.Navigated.Load() {
+		return errcode.BadRequestf("本轮页面已打开")
 	}
 	if t.Proposed.Load() {
 		return errcode.BadRequestf("本轮计划已提交，请等待用户确认")
@@ -230,7 +252,7 @@ func (t *Tools) Build() ([]tool.BaseTool, error) {
 			}
 			steps = append(steps, plan.Step{Seq: i + 1, Capability: step.Capability, Args: raw, Note: step.Note})
 		}
-		p, err := t.Plans.Create(ctx, plan.CreateIn{Intent: intent, SessionID: t.SessionID, Steps: steps, PageContext: t.PageContext, OnError: in.OnError})
+		p, err := t.Plans.Create(ctx, plan.CreateIn{Intent: intent, SessionID: t.SessionID, Steps: steps, PageContext: t.PageContext, OnError: proposalErrorPolicy(in.OnError)})
 		if err != nil {
 			return nil, err
 		}
@@ -263,12 +285,65 @@ func (t *Tools) Build() ([]tool.BaseTool, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []tool.BaseTool{list, describe, know, query, propose}, nil
+	navigation, err := t.navigationTools()
+	if err != nil {
+		return nil, err
+	}
+	form, err := t.formTool()
+	if err != nil {
+		return nil, err
+	}
+	forms, err := t.genericFormTools()
+	if err != nil {
+		return nil, err
+	}
+	return append(append(append([]tool.BaseTool{list, describe, know, query, propose}, navigation...), form), forms...), nil
 }
 
 func formatResults(p *plan.Plan) string {
 	b, _ := json.MarshalIndent(capability.SanitizeValue(p.Steps), "", "  ")
 	return "查询结果：\n```json\n" + truncateUTF8(string(b), 16<<10) + "\n```"
+}
+
+// consoleRoutes are the pages whose read capability is not named ".list",
+// because they are consoles rather than list pages.
+var consoleRoutes = []string{"/monitor/server", "/monitor/cache", "/monitor/queue"}
+
+var (
+	pageMu    sync.Mutex
+	pageCount int
+	pageCache []string
+)
+
+// pageBases reports the frontend routes implied by the registry.
+//
+// The convention is that a capability named "<ns>.list" bound to "<base>/list"
+// declares <base> as a browsable page. Every module registered the normal way
+// satisfies it, including the generated system resources and log pages, so
+// adding a business module needs no edit here.
+//
+// This used to be a hand-maintained list of every route in the application.
+// It had already drifted: the queue console was missing, so the AI could not
+// link to or navigate there.
+func pageBases() []string {
+	pageMu.Lock()
+	defer pageMu.Unlock()
+	// The registry only grows, so its size identifies the generation.
+	if n := capability.Count(); pageCache == nil || n != pageCount {
+		bases := append([]string(nil), consoleRoutes...)
+		for _, e := range capability.All() {
+			if e.HTTP == nil || !strings.HasSuffix(e.Name, ".list") {
+				continue
+			}
+			if base, ok := strings.CutSuffix(e.HTTP.Path, "/list"); ok && base != "" {
+				bases = append(bases, base)
+			}
+		}
+		// Longest first, so /system/dict/type wins over a shorter neighbour.
+		sort.Slice(bases, func(i, j int) bool { return len(bases[i]) > len(bases[j]) })
+		pageCache, pageCount = bases, n
+	}
+	return pageCache
 }
 
 // Route maps a capability's declared endpoint to a bundled application page.
@@ -277,6 +352,7 @@ func Route(e *capability.Entry) string {
 		return ""
 	}
 	path := e.HTTP.Path
+	// These three pages deliberately do not live at their capability's path.
 	if strings.HasPrefix(path, "/system/changeset") {
 		return "/changesets"
 	}
@@ -286,9 +362,9 @@ func Route(e *capability.Entry) string {
 	if strings.HasPrefix(path, "/dashboard/") {
 		return "/"
 	}
-	for _, prefix := range []string{"/system/user", "/system/role", "/system/menu", "/system/dict/type", "/system/dict/data", "/system/config", "/system/notice", "/system/ai-provider", "/system/storage", "/system/upload", "/system/changeset", "/monitor/online", "/monitor/operlog", "/monitor/loginlog", "/monitor/server", "/monitor/cache", "/monitor/jobLog", "/monitor/job", "/demo/item"} {
-		if strings.HasPrefix(path, prefix) {
-			return prefix
+	for _, base := range pageBases() {
+		if path == base || strings.HasPrefix(path, base+"/") {
+			return base
 		}
 	}
 	return ""

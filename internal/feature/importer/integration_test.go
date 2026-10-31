@@ -79,7 +79,7 @@ func TestImportIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	demo.Register(db)
+	demo.Register(db, nil)
 	sys := system.Register(db, c, cfg)
 	sets := changeset.New(db)
 	sets.AuthorizeUndo = system.AuthorizeUndo(sys)

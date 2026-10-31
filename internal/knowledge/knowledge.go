@@ -4,6 +4,7 @@ package knowledge
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -81,7 +82,7 @@ func RegisterRule(rule RuleDef) {
 	registry.rules = append(registry.rules, rule)
 }
 func init() {
-	defs := [][4]string{{"sys_user", "系统用户", "user_id", "user_name"}, {"sys_role", "角色", "role_id", "role_name"}, {"sys_menu", "菜单和权限点", "menu_id", "menu_name"}, {"sys_config", "系统参数", "config_id", "config_name"}, {"sys_notice", "通知公告", "notice_id", "notice_title"}, {"sys_dict_type", "字典类型", "dict_id", "dict_name"}, {"sys_dict_data", "字典项", "dict_code", "dict_label"}, {"sys_upload", "文件", "upload_id", "file_name"}, {"sys_job", "定时任务", "job_id", "job_name"}, {"sys_job_log", "任务执行日志", "job_log_id", "job_name"}, {"sys_oper_log", "行为溯源", "oper_id", "capability"}, {"sys_login_log", "登录日志", "info_id", "user_name"}, {"sys_ai_provider", "模型服务配置", "provider_id", "name"}, {"sys_storage_config", "存储配置", "storage_id", "name"}, {"sys_access_token", "个人访问令牌", "token_id", "name"}, {"sys_ai_plan", "操作计划", "plan_id", "intent"}, {"sys_changeset", "变更集", "changeset_id", "summary"}, {"sys_changeset_item", "变更明细", "item_id", "entity_label"}, {"demo_item", "示例条目", "item_id", "name"}}
+	defs := [][4]string{{"sys_user", "系统用户", "user_id", "user_name"}, {"sys_role", "角色", "role_id", "role_name"}, {"sys_menu", "菜单和权限点", "menu_id", "menu_name"}, {"sys_config", "系统参数", "config_id", "config_name"}, {"sys_notice", "通知公告", "notice_id", "notice_title"}, {"sys_dict_type", "字典类型", "dict_id", "dict_name"}, {"sys_dict_data", "字典项", "dict_code", "dict_label"}, {"sys_upload", "文件", "upload_id", "file_name"}, {"sys_job", "定时任务", "job_id", "job_name"}, {"sys_job_log", "任务执行日志", "job_log_id", "job_name"}, {"sys_oper_log", "行为溯源", "oper_id", "capability"}, {"sys_login_log", "登录日志", "info_id", "user_name"}, {"sys_ai_provider", "模型服务配置", "provider_id", "name"}, {"sys_storage_config", "存储配置", "storage_id", "name"}, {"sys_access_token", "个人访问令牌", "token_id", "name"}, {"sys_ai_plan", "操作计划", "plan_id", "intent"}, {"sys_changeset", "变更集", "changeset_id", "summary"}, {"sys_changeset_item", "变更明细", "item_id", "entity_label"}, {"sys_ai_plan_approval", "跨人计划审批", "approval_id", "plan_id"}, {"sys_notification", "个人通知", "notification_id", "title"}, {"sys_oauth_grant", "MCP 授权", "grant_id", "client_id"}, {"demo_item", "示例条目", "item_id", "name"}}
 	for _, d := range defs {
 		RegisterEntity(EntityDef{Table: d[0], Summary: d[1], KeyField: d[2], LabelField: d[3], Notes: []string{"status='0' 正常，'1' 停用；del_flag='0' 存在，'2' 软删除（带这些字段的表）"}})
 	}
@@ -93,6 +94,10 @@ func init() {
 	RegisterRule(RuleDef{Scope: "sys_menu", Rule: "M是目录、C是页面、F是按钮权限；隐藏菜单仍保留路由，停用菜单不贡献权限", Enforced: true})
 	RegisterRule(RuleDef{Scope: "sys_ai_provider", Rule: "凭证加密保存；模型服务及存储配置写操作不向AI和MCP开放", Enforced: true})
 	RegisterRule(RuleDef{Scope: "sys_changeset", Rule: "回滚只恢复变更涉及的字段，当前值偏离记录时跳过并报告冲突", Enforced: true})
+	RegisterRule(RuleDef{Scope: "sys_job", Rule: "执行计划保存为标准五字段 cron（分钟 小时 日 月 周）；每分钟为 * * * * *，也支持 @every 1m。新任务默认暂停，需要运行时显式设置 status='0'", Enforced: true})
+	RegisterRule(RuleDef{Scope: "sys_job", Rule: "定时个人通知使用 system:notifyUser，jobParams 为包含 title、content 的 JSON 字符串；接收人由服务端绑定为创建者，后续编辑不得更换接收人；通知显示在接收人的铃铛中，不是公开公告", Enforced: true})
+	RegisterRule(RuleDef{Scope: "sys_job", Rule: "定时创建公开通知公告使用 system:createNotice，参数 noticeTitle、noticeContent、noticeType（1通知或2公告）、status（0正常或1停用），每次执行新增一条；创建、修改、启用和手动执行此任务还需要 system:notice:add 权限", Enforced: true})
+	RegisterRule(RuleDef{Scope: "sys_job", Rule: "jobGroup 是执行队列，只能使用 DEFAULT、critical、low；普通任务和公共公告任务使用 DEFAULT。历史字典 SYSTEM 是 DEFAULT 的兼容别名，不是独立队列；公告公开范围不决定队列，不要使用 PUBLIC 或任意业务分组", Enforced: true})
 }
 func (s *Service) Invalidate() { s.mu.Lock(); s.expires = time.Time{}; s.mu.Unlock() }
 func (s *Service) loadEnums(ctx context.Context) ([]EnumDef, error) {
@@ -194,4 +199,68 @@ func (s *Service) Get(ctx context.Context, topic string) (Knowledge, error) {
 		return out, errcode.NotFoundf("知识主题不存在")
 	}
 	return out, nil
+}
+
+// CapabilityEntities maps a capability namespace to the table it operates on,
+// for the namespaces that predate the naming convention. It is the single
+// source for that mapping; the MCP resource filter and CheckCoverage both read
+// it instead of keeping their own copies.
+// An empty value means the namespace is deliberately not backed by a table.
+var CapabilityEntities = map[string]string{
+	"system.user": "sys_user", "system.role": "sys_role", "system.menu": "sys_menu",
+	"system.config": "sys_config", "system.notice": "sys_notice",
+	"system.dictType": "sys_dict_type", "system.dictData": "sys_dict_data",
+	"system.dict": "sys_dict_data", "system.upload": "sys_upload",
+	"system.aiProvider": "sys_ai_provider", "system.storage": "sys_storage_config",
+	"system.token": "sys_access_token", "system.changeset": "sys_changeset",
+	"system.auditTrail": "sys_oper_log", "system.audit": "sys_oper_log",
+	"monitor.job": "sys_job", "monitor.jobLog": "sys_job_log",
+	"monitor.operlog": "sys_oper_log", "monitor.loginlog": "sys_login_log",
+	"demo.item": "demo_item",
+	// Backed by Redis and by the registry itself, not by a table.
+	"monitor.online": "", "mcp.resource": "",
+}
+
+// ConventionTable turns a capability name into the table its namespace
+// implies, e.g. shop.order.list -> shop_order. Callers check the result
+// against the registered entities, so an unconventional name finds nothing.
+func ConventionTable(name string) (string, bool) {
+	parts := strings.Split(name, ".")
+	if len(parts) < 3 {
+		return "", false
+	}
+	return strings.Join(parts[:len(parts)-1], "_"), true
+}
+
+// CheckCoverage warns about list capabilities whose entity is not described in
+// the knowledge registry. The model is then working blind on that table: it
+// knows the capability exists but not what the rows mean.
+//
+// This is a warning, not a failure. It exists because the registry silently
+// fell behind when the approval, notification and OAuth features landed, and
+// nothing pointed it out.
+func CheckCoverage() []string {
+	registry.RLock()
+	known := make(map[string]bool, len(registry.entities))
+	for _, e := range registry.entities {
+		known[e.Table] = true
+	}
+	registry.RUnlock()
+
+	missing := []string{}
+	for _, e := range capability.All() {
+		if !strings.HasSuffix(e.Name, ".list") {
+			continue
+		}
+		namespace := strings.TrimSuffix(e.Name, ".list")
+		if table, ok := CapabilityEntities[namespace]; ok && (table == "" || known[table]) {
+			continue
+		}
+		if table, ok := ConventionTable(e.Name); ok && known[table] {
+			continue
+		}
+		missing = append(missing, e.Name)
+	}
+	sort.Strings(missing)
+	return missing
 }

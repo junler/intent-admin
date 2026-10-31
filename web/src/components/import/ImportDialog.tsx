@@ -364,7 +364,7 @@ export default function ImportDialog({
                     rowKey={(row) => `${row.row}:${row.message}`}
                     size="small"
                     dataSource={report.errors}
-                    pagination={{ pageSize: 5 }}
+                    pagination={{ pageSize: 5, hideOnSinglePage: true }}
                     columns={[
                       { title: t('文件行号'), dataIndex: 'row', width: 100 },
                       {

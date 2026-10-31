@@ -1,6 +1,5 @@
-import { ArrowUpOutlined } from '@ant-design/icons';
-import { Input, Tooltip } from 'antd';
-import { useEffect, useId, useRef, useState } from 'react';
+import { Tooltip } from 'antd';
+import { useEffect, useId, useState } from 'react';
 import { useAiPanel } from '@/components/ai/AiPanel';
 import { usePerm } from '@/hooks/usePerm';
 import { t } from '@/i18n';
@@ -33,12 +32,10 @@ function IntentMark() {
 }
 
 export function Omnibox({ compact = false }: { compact?: boolean }) {
-  const ref = useRef<React.ComponentRef<typeof Input>>(null);
   const allowed = usePerm('ai:agent:use');
-  const show = useAiPanel((s) => s.show);
+  const reveal = useAiPanel((s) => s.reveal);
   const context = usePageContextStore((s) => s.context);
   const menus = useUserStore((s) => s.menus);
-  const [text, setText] = useState('');
   const [focused, setFocused] = useState(false);
   const chipId = useId();
 
@@ -50,23 +47,14 @@ export function Omnibox({ compact = false }: { compact?: boolean }) {
         event.key.toLowerCase() === 'k'
       ) {
         event.preventDefault();
-        ref.current?.focus();
+        reveal();
       }
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [allowed]);
+  }, [allowed, reveal]);
 
   const selection = selectionOf(context, menus);
-  const ready = Boolean(text.trim());
-
-  function send() {
-    if (!allowed || !ready) return;
-    show(text.trim());
-    setText('');
-    ref.current?.blur();
-  }
-
   // One tooltip for the whole bar: a second one on the chip would stack on top
   // of it, so the selected rows are named here instead.
   const hint = !allowed ? (
@@ -84,11 +72,23 @@ export function Omnibox({ compact = false }: { compact?: boolean }) {
   );
 
   return (
-    <Tooltip title={hint} placement="bottom" mouseEnterDelay={0.4}>
-      <div
+    <Tooltip
+      title={hint}
+      placement="bottomLeft"
+      mouseEnterDelay={0.5}
+      open={focused ? false : undefined}
+    >
+      <button
+        type="button"
+        disabled={!allowed}
+        aria-label={t('AI 会话')}
+        aria-haspopup="dialog"
+        aria-describedby={selection ? chipId : undefined}
+        onClick={reveal}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         className={[
           'intent-omnibox',
-          focused && 'intent-omnibox-focused',
           !allowed && 'intent-omnibox-disabled',
           compact && 'intent-omnibox-compact',
         ]
@@ -96,29 +96,9 @@ export function Omnibox({ compact = false }: { compact?: boolean }) {
           .join(' ')}
       >
         <IntentMark />
-        <Input
-          ref={ref}
-          variant="borderless"
-          value={text}
-          disabled={!allowed}
-          aria-label={t('描述你的意图')}
-          aria-describedby={selection ? chipId : undefined}
-          placeholder={t('描述你的意图，例如：停用选中的用户')}
-          onChange={(event) => setText(event.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          onPressEnter={(event) => {
-            if (event.nativeEvent.isComposing) return;
-            event.preventDefault();
-            send();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape' && !event.nativeEvent.isComposing) {
-              setText('');
-              ref.current?.blur();
-            }
-          }}
-        />
+        <span className="intent-omnibox-placeholder">
+          {t('描述你的意图，例如：停用选中的用户')}
+        </span>
         {selection && (
           <span className="intent-omnibox-chip" id={chipId}>
             {selection.scope && (
@@ -132,25 +112,12 @@ export function Omnibox({ compact = false }: { compact?: boolean }) {
             </span>
           </span>
         )}
-        {ready ? (
-          <button
-            type="button"
-            className="intent-omnibox-send"
-            aria-label={t('发送给 Intent')}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={send}
-          >
-            <ArrowUpOutlined />
-          </button>
-        ) : (
-          !compact &&
-          allowed && (
-            <kbd className="intent-omnibox-kbd">
-              {isApple() ? '⌘K' : 'Ctrl K'}
-            </kbd>
-          )
+        {!compact && allowed && (
+          <kbd className="intent-omnibox-kbd">
+            {isApple() ? '⌘K' : 'Ctrl K'}
+          </kbd>
         )}
-      </div>
+      </button>
     </Tooltip>
   );
 }

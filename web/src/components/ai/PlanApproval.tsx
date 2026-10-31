@@ -12,8 +12,11 @@ import {
   Typography,
 } from 'antd';
 import { useState } from 'react';
+import { useAiForm } from '@/hooks/useAiForm';
 import { t } from '@/i18n';
 import { ApiError, api, Code } from '@/utils/request';
+import { useAiPanel } from './panelState';
+import { AiFormScope, AiFormMarker } from './AiFormContext';
 import { approvalLabels } from './approval';
 import type { Plan, PlanApproval } from './state';
 
@@ -27,6 +30,7 @@ export function PlanApprovalControls({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [dialogLayer, setDialogLayer] = useState(1900);
   const [loading, setLoading] = useState(false);
   const [reviewers, setReviewers] = useState<
     { userId: number; userName: string }[]
@@ -38,6 +42,17 @@ export function PlanApprovalControls({
     plan.status === 'previewed' &&
     !plan.changesetId &&
     !plan.steps.some((s) => ['pending', 'applied'].includes(s.status));
+  useAiForm({
+    id: `plan.approval.${plan.id}`,
+    title: t('申请另一位成员审批'),
+    fields: ['reviewerId', 'comment'],
+    permission: 'ai:agent:use',
+    enabled: canRequest && !disabled,
+    fill: async (values) => {
+      await selectReviewer();
+      form.setFieldsValue(values);
+    },
+  });
   const expired =
     approval &&
     ['pending', 'approved'].includes(approval.status) &&
@@ -55,6 +70,7 @@ export function PlanApprovalControls({
       );
       setReviewers(result);
       form.resetFields();
+      setDialogLayer((useAiPanel.getState().request?.layer ?? 1800) + 100);
       setOpen(true);
     } catch {
       /* The request layer reports API errors. */
@@ -204,6 +220,7 @@ export function PlanApprovalControls({
         )}
       </Space>
       <Modal
+        zIndex={dialogLayer}
         open={open}
         title={t('申请另一位成员审批')}
         onCancel={() => setOpen(false)}
@@ -228,31 +245,40 @@ export function PlanApprovalControls({
             title={t('没有符合条件的其他审批人，请联系管理员分配审批权限。')}
           />
         )}
-        <Form form={form} layout="vertical">
-          <Form.Item
-            name="reviewerId"
-            label={t('指定审批人')}
-            rules={[{ required: true, message: t('请选择审批人') }]}
-          >
-            <Select
-              showSearch
-              optionFilterProp="label"
-              options={reviewers.map((r) => ({
-                value: r.userId,
-                label: r.userName,
-              }))}
-              placeholder={t('请选择审批人')}
-            />
-          </Form.Item>
-          <Form.Item name="comment" label={t('审批说明')}>
-            <Input.TextArea
-              rows={3}
-              maxLength={1000}
-              showCount
-              placeholder={t('说明操作目的和需要核对的内容')}
-            />
-          </Form.Item>
-        </Form>
+        <AiFormScope
+          value={{
+            title: t('申请另一位成员审批'),
+            mode: 'action',
+            formId: `ui.plan.approval.${plan.id}`,
+          }}
+        >
+          <Form form={form} layout="vertical">
+            <AiFormMarker />
+            <Form.Item
+              name="reviewerId"
+              label={t('指定审批人')}
+              rules={[{ required: true, message: t('请选择审批人') }]}
+            >
+              <Select
+                showSearch
+                optionFilterProp="label"
+                options={reviewers.map((r) => ({
+                  value: r.userId,
+                  label: r.userName,
+                }))}
+                placeholder={t('请选择审批人')}
+              />
+            </Form.Item>
+            <Form.Item name="comment" label={t('审批说明')}>
+              <Input.TextArea
+                rows={3}
+                maxLength={1000}
+                showCount
+                placeholder={t('说明操作目的和需要核对的内容')}
+              />
+            </Form.Item>
+          </Form>
+        </AiFormScope>
       </Modal>
     </div>
   );

@@ -16,6 +16,8 @@ type retentionIn struct {
 }
 
 func (r *Runtime) registerBuiltins() {
+	r.registerAnnouncementHandler()
+	r.InvokeHandler(NotificationHandler, "向任务创建者发送个人系统通知（铃铛），参数 title、content；recipientId 由服务端绑定，无需填写", "task.system.notifyUser", map[string]any{"title": "每分钟提醒", "content": "这是一条定时系统通知", "recipientId": 0})
 	// Async export is deliberately absent from the user-selectable cron
 	// allowlist. Only EnqueueExport may bind an authenticated user's identity;
 	// a system job must never choose another user's ID to gain their grants.
@@ -36,12 +38,17 @@ func (r *Runtime) registerBuiltins() {
 			return err
 		}})
 	}
-	r.RegisterHandler(Handler{Name: "demo:noParams", Summary: "无参数演示任务", ParamsProto: map[string]any{}, Fn: func(ctx context.Context, _ json.RawMessage) error {
-		_, err := capability.InvokeJSON(ctx, "demo.item.list", json.RawMessage(`{}`))
-		return err
-	}})
-	r.RegisterHandler(Handler{Name: "demo:withParams", Summary: "按编号修改演示条目状态", ParamsProto: map[string]any{"itemId": 0, "status": "1"}, Fn: func(ctx context.Context, p json.RawMessage) error {
-		_, err := capability.InvokeJSON(ctx, "demo.item.update", p)
+}
+
+// InvokeHandler registers a scheduler handler that forwards to a capability.
+// A feature package uses this to ship its own sample or maintenance jobs so
+// they live and die with that package, rather than being listed here.
+func (r *Runtime) InvokeHandler(name, summary, capabilityName string, params map[string]any) {
+	r.RegisterHandler(Handler{Name: name, Summary: summary, ParamsProto: params, Fn: func(ctx context.Context, p json.RawMessage) error {
+		if len(p) == 0 {
+			p = json.RawMessage(`{}`)
+		}
+		_, err := capability.InvokeJSON(ctx, capabilityName, p)
 		return err
 	}})
 }
@@ -49,6 +56,7 @@ func (r *Runtime) registerBuiltins() {
 // RegisterCapabilities supplies auditable, bounded retention operations for
 // scheduler handlers. It must be called once during feature registration.
 func (r *Runtime) RegisterCapabilities() {
+	r.registerNotificationCapability()
 	defer r.registerServiceCapabilities()
 	for _, x := range []struct{ name, title, table, id, date string }{{"cleanOperLog", "清理过期操作日志", "sys_oper_log", "oper_id", "oper_time"}, {"cleanLoginLog", "清理过期登录日志", "sys_login_log", "info_id", "login_time"}, {"cleanJobLog", "清理过期任务日志", "sys_job_log", "job_log_id", "create_time"}, {"cleanChangeset", "清理过期变更集", "sys_changeset", "changeset_id", "create_time"}} {
 		x := x

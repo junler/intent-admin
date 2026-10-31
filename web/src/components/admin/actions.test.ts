@@ -81,3 +81,40 @@ describe('credential editing', () => {
     ).toEqual({ name: 'Existing', apiKey: 'new-key' });
   });
 });
+
+describe('AI form field boundaries', () => {
+  it('prefills editable values and credentials without assigning IDs or hidden fields', async () => {
+    const { fillableValues } = await import('./actions');
+    const fields: import('./types').Field[] = [
+      { name: 'name', label: 'Name' },
+      {
+        name: 'password',
+        label: 'Password',
+        type: 'password',
+        createOnly: true,
+      },
+      { name: 'apiKey', label: 'API Key', type: 'password' },
+      { name: 'serverOnly', label: 'Hidden', form: false },
+      { name: 'metadata', label: 'JSON', type: 'json' },
+      { name: 'roleIds', label: 'Roles', type: 'multi' },
+    ];
+    const input = {
+      name: 'Updated',
+      password: 'test-only',
+      apiKey: 'test-key',
+      userId: 1,
+      serverOnly: 'blocked',
+      metadata: { x: 1 },
+      roleIds: [2, 3],
+    };
+    const values = fillableValues(fields, input, true);
+    expect(values.name).toBe('Updated');
+    expect(values.apiKey).toBe('test-key');
+    expect(values).not.toHaveProperty('password');
+    expect(values).not.toHaveProperty('userId');
+    expect(values).not.toHaveProperty('serverOnly');
+    expect(JSON.parse(values.metadata)).toEqual({ x: 1 });
+    expect(values.roleIds).toEqual([2, 3]);
+    expect(fillableValues(fields, input, false).password).toBe('test-only');
+  });
+});

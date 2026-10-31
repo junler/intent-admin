@@ -1,4 +1,5 @@
 import '@/styles/global.css';
+import '@/styles/markdown.css';
 
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';

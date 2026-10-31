@@ -1,12 +1,15 @@
 package auth
 
 import (
+	"context"
 	"net/url"
 	"sort"
 	"strings"
 	"unicode"
 
+	"github.com/junler/intent-admin/internal/capability"
 	"github.com/junler/intent-admin/internal/model"
+	"github.com/junler/intent-admin/internal/pkg/errcode"
 )
 
 // Route is the permission-derived router contract consumed by the SPA.
@@ -93,4 +96,17 @@ func validExternalURL(raw string) bool {
 	}
 	u, err := url.Parse(raw)
 	return err == nil && (strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")) && u.Hostname() != "" && u.User == nil && u.Opaque == ""
+}
+
+// Routes is shared by the HTTP menu endpoint and AI page navigation.
+func (s *Service) Routes(ctx context.Context) ([]Route, error) {
+	a, ok := capability.ActorFrom(ctx)
+	if !ok {
+		return nil, errcode.Unauthorizedf("请先登录")
+	}
+	menus, err := s.identity.Menus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return BuildRoutes(menus, a.Perms), nil
 }

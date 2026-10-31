@@ -20,6 +20,17 @@ export default function Jobs() {
       updateUrl="/monitor/job/update"
       idKey="jobId"
       perm="monitor:job"
+      onValuesChange={(changed) => {
+        if (!changed.invokeTarget) return {};
+        const handler = handlers.find(
+          (item) => item.name === changed.invokeTarget,
+        );
+        if (handler)
+          return {
+            jobParams: JSON.stringify(handler.paramsProto ?? {}, null, 2),
+          };
+        return {};
+      }}
       extra={
         <Button onClick={() => navigate('/monitor/jobLog')}>
           {t('执行日志')}
@@ -30,7 +41,12 @@ export default function Jobs() {
         {
           name: 'jobGroup',
           label: t('队列'),
+          type: 'select',
           defaultValue: 'DEFAULT',
+          options: ['DEFAULT', 'critical', 'low'].map((value) => ({
+            label: value,
+            value,
+          })),
           search: true,
         },
         {

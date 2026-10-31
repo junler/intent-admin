@@ -14,6 +14,7 @@ export default function Config() {
         idKey="configId"
         perm="system:config"
         export
+        import
         extra={
           <Auth perm="system:config:edit">
             <Button

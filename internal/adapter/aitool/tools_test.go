@@ -42,3 +42,39 @@ func TestQueryHidesUnpermittedEntry(t *testing.T) {
 		t.Fatalf("hidden entry leaked: %v", err)
 	}
 }
+
+// Registering a module must be enough for the AI to link to its page. This
+// used to require editing a hand-maintained list of every route in the app.
+func TestRouteIsDerivedFromTheRegistry(t *testing.T) {
+	capability.Register(capability.Capability[struct{}, struct{}]{
+		Meta: capability.Meta{Name: "shop.order.list", Summary: "查询订单", Risk: capability.RiskLow, AIEnabled: true,
+			HTTP: &capability.HTTPBinding{Method: "GET", Path: "/shop/order/list"}},
+		Fn: func(context.Context, struct{}) (struct{}, error) { return struct{}{}, nil }})
+	capability.Register(capability.Capability[struct{}, struct{}]{
+		Meta: capability.Meta{Name: "shop.order.update", Summary: "修改订单", Risk: capability.RiskMedium, Mutating: true,
+			HTTP: &capability.HTTPBinding{Method: "PUT", Path: "/shop/order/:id"}},
+		Fn:     func(context.Context, struct{}) (struct{}, error) { return struct{}{}, nil },
+		DryRun: func(context.Context, struct{}) (*capability.Preview, error) { return &capability.Preview{}, nil }})
+
+	for _, tc := range []struct{ name, want string }{
+		{"shop.order.list", "/shop/order"},
+		{"shop.order.update", "/shop/order"},
+	} {
+		entry, ok := capability.Lookup(tc.name)
+		if !ok {
+			t.Fatalf("%s not registered", tc.name)
+		}
+		if got := Route(entry); got != tc.want {
+			t.Fatalf("Route(%s) = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	if got := Route(nil); got != "" {
+		t.Fatalf("Route(nil) = %q", got)
+	}
+	// Pages that deliberately do not sit at their capability's path keep their
+	// explicit mapping.
+	changeset := &capability.Entry{Meta: capability.Meta{Name: "x.changeset.list", HTTP: &capability.HTTPBinding{Path: "/system/changeset/list"}}}
+	if got := Route(changeset); got != "/changesets" {
+		t.Fatalf("changeset route = %q, want /changesets", got)
+	}
+}

@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from '@umijs/max';
-import { Result, Spin } from 'antd';
+import { Result } from 'antd';
+import { Loading } from '@/components/common/Loading';
 import {
   type ComponentType,
   type LazyExoticComponent,
@@ -123,7 +124,9 @@ export default function DynamicPage() {
             active={Boolean(active && entry.path === pathname)}
             location={entry.location}
           >
-            <Suspense fallback={<Spin size="large" />}>
+            {/* A bare Spin is inline, so it lands in the top-left corner of
+                the content area instead of where the page is about to be. */}
+            <Suspense fallback={<Loading />}>
               <Cached />
             </Suspense>
           </FrozenPageBoundary>

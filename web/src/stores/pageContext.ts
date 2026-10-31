@@ -12,6 +12,8 @@ export interface PageContext {
   route: string;
   /** The page's primary capability, e.g. demo.item.list. */
   capability?: string;
+  /** Current editor identity only; form values and credentials are never shared here. */
+  form?: { route: string; mode: 'create' | 'update'; recordId?: string };
   /** Current filter form values. */
   filters?: Record<string, unknown>;
   /** Checked row ids, capped to keep the payload bounded. */

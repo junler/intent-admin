@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/junler/intent-admin/internal/aiprovider"
+	"github.com/junler/intent-admin/internal/auth"
 	"github.com/junler/intent-admin/internal/cache"
 	"github.com/junler/intent-admin/internal/capability"
 	"github.com/junler/intent-admin/internal/config"
@@ -181,5 +183,131 @@ func TestLateCompletionCannotRestoreDeletedSession(t *testing.T) {
 	}
 	if n := s.cache.Exists(ctx, s.sessionKey(1, se.ID)).Val(); n != 0 {
 		t.Fatal("deleted session resurrected")
+	}
+}
+
+type fixedNavigation struct{}
+
+func (fixedNavigation) Routes(context.Context) ([]auth.Route, error) {
+	return []auth.Route{{Path: "/system/user", Component: "system/user/index", Meta: auth.RouteMeta{Title: "用户管理"}}}, nil
+}
+
+func TestNavigationReturnsDirectlyAndPersistsDestination(t *testing.T) {
+	s, _ := sessionService(t)
+	cm := &fixedModel{messages: []*schema.Message{
+		schema.AssistantMessage("", []schema.ToolCall{{ID: "open-page", Type: "function", Function: schema.FunctionCall{Name: "navigate", Arguments: `{"route":"/system/user"}`}}}),
+		schema.AssistantMessage("should not require another model response", nil),
+	}}
+	s.models = fixedProvider{cm: cm}
+	s.Navigation = fixedNavigation{}
+	a := &capability.Actor{UserID: 1, Source: capability.SourceAI, Type: capability.ActorAgent, MaxRisk: capability.RiskLow}
+	ctx := capability.WithActor(context.Background(), a)
+	session, err := s.newSession(ctx, 1, "打开用户管理", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	navigations := 0
+	err = s.run(ctx, a, session, ChatInput{Message: "打开用户管理"}, func(kind string, data any) {
+		if kind == "navigate" {
+			navigations++
+		}
+		if kind == "plan" {
+			t.Fatal("page navigation created a business plan")
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.loadSession(ctx, 1, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if navigations != 1 || cm.index != 1 || len(saved.Messages) != 2 {
+		t.Fatalf("navigations=%d, model calls=%d, messages=%+v", navigations, cm.index, saved.Messages)
+	}
+	reply := saved.Messages[1]
+	if !reply.Navigated || reply.Content != "已打开用户管理" || len(reply.Evidence) != 1 || reply.Evidence[0].Route != "/system/user" {
+		t.Fatalf("navigation destination was not retained: %+v", reply)
+	}
+}
+
+func TestSuggestedPageIsSavedWithoutAutomaticNavigation(t *testing.T) {
+	s, _ := sessionService(t)
+	cm := &fixedModel{messages: []*schema.Message{
+		schema.AssistantMessage("", []schema.ToolCall{{ID: "suggest-page", Type: "function", Function: schema.FunctionCall{Name: "suggest_page", Arguments: `{"route":"/system/user"}`}}}),
+		schema.AssistantMessage("查询已完成。", nil),
+	}}
+	s.models = fixedProvider{cm: cm}
+	s.Navigation = fixedNavigation{}
+	a := &capability.Actor{UserID: 1, Source: capability.SourceAI, Type: capability.ActorAgent, MaxRisk: capability.RiskLow}
+	ctx := capability.WithActor(context.Background(), a)
+	session, err := s.newSession(ctx, 1, "帮我查询用户", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.run(ctx, a, session, ChatInput{Message: "帮我查询用户"}, func(kind string, data any) {
+		if kind == "navigate" || kind == "plan" {
+			t.Fatalf("suggestion triggered %s: %+v", kind, data)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.loadSession(ctx, 1, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Messages) != 2 || saved.Messages[1].Navigated || saved.Messages[1].Content != "查询已完成。" || len(saved.Messages[1].Evidence) != 1 || saved.Messages[1].Evidence[0].Route != "/system/user" {
+		t.Fatalf("suggestion not saved with answer: %+v", saved.Messages)
+	}
+}
+
+func TestUserFormHandoffDoesNotPersistPasswordOrCreateAPlan(t *testing.T) {
+	s, redis := sessionService(t)
+	const password = `test-"pass-42`
+	args, _ := json.Marshal(map[string]any{"userName": "test_user", "nickName": "测试用户", "password": password})
+	cm := &fixedModel{messages: []*schema.Message{
+		schema.AssistantMessage("", []schema.ToolCall{{ID: "fill-form", Type: "function", Function: schema.FunctionCall{Name: "fill_user_form", Arguments: string(args)}}}),
+		schema.AssistantMessage("must return directly", nil),
+	}}
+	s.models = fixedProvider{cm: cm}
+	s.Navigation = fixedNavigation{}
+	a := &capability.Actor{UserID: 1, Source: capability.SourceAI, Type: capability.ActorAgent, MaxRisk: capability.RiskLow, Perms: []string{"system:user:add"}}
+	ctx := capability.WithActor(context.Background(), a)
+	request := "创建测试用户，初始密码是 " + password
+	session, err := s.newSession(ctx, 1, request, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fills := 0
+	err = s.run(ctx, a, session, ChatInput{Message: request}, func(kind string, data any) {
+		if kind == "plan" {
+			t.Fatal("form handoff created a business plan")
+		}
+		if kind == "form_fill" {
+			fills++
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fills != 1 || cm.index != 1 {
+		t.Fatal("expected a single direct form handoff")
+	}
+	saved, err := s.loadSession(ctx, 1, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Messages) != 2 || !saved.Messages[1].Navigated {
+		t.Fatal("form handoff transcript was not retained")
+	}
+	for _, key := range redis.Keys() {
+		value, err := redis.Get(key)
+		if err == nil {
+			escaped, _ := json.Marshal(password)
+			if strings.Contains(value, password) || strings.Contains(value, string(escaped)) {
+				t.Fatal("credential remained in persisted session or checkpoint")
+			}
+		}
 	}
 }

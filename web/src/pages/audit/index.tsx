@@ -1,3 +1,4 @@
+import { DetailDialog } from '@/components/common/DetailDialog';
 import {
   type ActionType,
   PageContainer,
@@ -5,15 +6,7 @@ import {
   ProTable,
 } from '@ant-design/pro-components';
 import { history, useLocation } from '@umijs/max';
-import {
-  Alert,
-  Button,
-  Descriptions,
-  Drawer,
-  Space,
-  Tag,
-  Typography,
-} from 'antd';
+import { Alert, Button, Descriptions, Space, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useRef, useState } from 'react';
 import { Auth } from '@/components/auth/Auth';
@@ -233,7 +226,7 @@ export default function AuditPage() {
         columns={columns}
         scroll={{ x: 1800 }}
         search={{ labelWidth: 'auto' }}
-        pagination={{ pageSize: 20, showSizeChanger: true }}
+        pagination={{ pageSize: 20, showSizeChanger: true, hideOnSinglePage: true }}
         request={async (params) => {
           const result = await api.get<PageData<AuditRow>>(
             '/system/audit/list',
@@ -247,7 +240,7 @@ export default function AuditPage() {
           return { data: result.rows, total: result.total, success: true };
         }}
       />
-      <Drawer
+      <DetailDialog
         title={t('行为溯源详情')}
         open={active && !!detail}
         width={950}
@@ -382,7 +375,7 @@ export default function AuditPage() {
             </pre>
           </>
         )}
-      </Drawer>
+      </DetailDialog>
     </PageContainer>
   );
 }

@@ -1,3 +1,4 @@
+import { DetailDialog } from '@/components/common/DetailDialog';
 import { DeleteOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import {
   type ActionType,
@@ -10,7 +11,6 @@ import {
   App,
   Button,
   Descriptions,
-  Drawer,
   Empty,
   Modal,
   Space,
@@ -158,12 +158,12 @@ export default function OAuthGrantsPage() {
           });
           return { data: rows, success: true, total: rows.length };
         }}
-        pagination={{ pageSize: 10 }}
+        pagination={{ pageSize: 10, hideOnSinglePage: true }}
         locale={{
           emptyText: <Empty description={t('尚未授权任何 MCP 客户端')} />,
         }}
       />
-      <Drawer
+      <DetailDialog
         open={active && Boolean(detail)}
         title={t('授权详情')}
         width={580}
@@ -223,7 +223,7 @@ export default function OAuthGrantsPage() {
             ]}
           />
         )}
-      </Drawer>
+      </DetailDialog>
       <Modal
         open={active && Boolean(revoking)}
         title={t('撤销客户端授权')}

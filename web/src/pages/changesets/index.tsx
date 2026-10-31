@@ -1,3 +1,4 @@
+import { DetailDialog } from '@/components/common/DetailDialog';
 import {
   type ActionType,
   PageContainer,
@@ -10,17 +11,16 @@ import {
   App,
   Button,
   Descriptions,
-  Drawer,
   Empty,
   Modal,
   Space,
-  Spin,
   Table,
   Tag,
   Typography,
 } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { Auth } from '@/components/auth/Auth';
+import { Loading } from '@/components/common/Loading';
 import { DictTag } from '@/components/dict/DictTag';
 import { DiffTable } from '@/components/diff/DiffTable';
 import { usePageActive } from '@/contexts/ActivePageContext';
@@ -334,7 +334,7 @@ export default function ChangesetsPage() {
         columns={columns}
         scroll={{ x: 1400 }}
         search={{ labelWidth: 'auto' }}
-        pagination={{ pageSize: 20, showSizeChanger: true }}
+        pagination={{ pageSize: 20, showSizeChanger: true, hideOnSinglePage: true }}
         request={async (params) => {
           const result = await api.get<PageData<Changeset>>(
             '/system/changeset/list',
@@ -343,7 +343,7 @@ export default function ChangesetsPage() {
           return { data: result.rows, total: result.total, success: true };
         }}
       />
-      <Drawer
+      <DetailDialog
         title={t('变更集详情')}
         open={active && !!selectedId && canView}
         onClose={closeDetail}
@@ -362,7 +362,7 @@ export default function ChangesetsPage() {
         }
       >
         {detailLoading ? (
-          <Spin />
+          <Loading panel />
         ) : detail ? (
           <>
             <Descriptions
@@ -617,7 +617,7 @@ export default function ChangesetsPage() {
         ) : (
           <Empty description={t('无法加载变更集')} />
         )}
-      </Drawer>
+      </DetailDialog>
       <Modal
         title={t('确认回滚')}
         open={active && !!rollbackTarget}
@@ -634,7 +634,7 @@ export default function ChangesetsPage() {
         }}
       >
         {rollbackBusy && !preview ? (
-          <Spin />
+          <Loading panel />
         ) : (
           preview && (
             <>

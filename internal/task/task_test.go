@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -45,7 +46,14 @@ func testRuntime(t *testing.T) *Runtime {
 }
 func TestJobAllowlistAndParameters(t *testing.T) {
 	r := testRuntime(t)
-	j := Job{JobName: "demo", InvokeTarget: "demo:noParams", CronExpression: "@every 30s"}
+	// Own the fixtures rather than borrowing a feature package's handlers: the
+	// allowlist is what is under test, not any particular module.
+	r.RegisterHandler(Handler{Name: "sample:noParams", Summary: "无参数", ParamsProto: map[string]any{},
+		Fn: func(context.Context, json.RawMessage) error { return nil }})
+	r.RegisterHandler(Handler{Name: "sample:withParams", Summary: "带参数", ParamsProto: map[string]any{"itemId": 0, "status": "1"},
+		Fn: func(context.Context, json.RawMessage) error { return nil }})
+
+	j := Job{JobName: "sample", InvokeTarget: "sample:noParams", CronExpression: "@every 30s"}
 	if err := r.ValidateJob(&j); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +64,7 @@ func TestJobAllowlistAndParameters(t *testing.T) {
 	if r.ValidateJob(&j) == nil {
 		t.Fatal("unregistered invocation accepted")
 	}
-	j.InvokeTarget = "demo:withParams"
+	j.InvokeTarget = "sample:withParams"
 	j.JobParams = `{"shell":"rm -rf /"}`
 	if r.ValidateJob(&j) == nil {
 		t.Fatal("unknown handler argument accepted")

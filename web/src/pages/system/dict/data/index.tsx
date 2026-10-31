@@ -14,6 +14,7 @@ export default function DictData() {
       idKey="dictCode"
       perm="system:dict"
       export
+      import
       params={dictType ? { dictType } : undefined}
       fields={[
         {

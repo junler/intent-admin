@@ -68,7 +68,7 @@ func newRoot() *cobra.Command {
 	root.PersistentFlags().StringVar(&logLevel, "log-level", "",
 		"日志级别：debug|info|warn|error（覆盖配置文件）")
 
-	root.AddCommand(newServeCmd(), newWorkerCmd(), newMCPCmd(), newMigrateCmd(), newVersionCmd())
+	root.AddCommand(newServeCmd(), newWorkerCmd(), newMCPCmd(), newMigrateCmd(), newDemoCmd(), newVersionCmd())
 	return root
 }
 

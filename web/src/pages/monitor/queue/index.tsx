@@ -1,3 +1,4 @@
+import { DetailDialog } from '@/components/common/DetailDialog';
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
@@ -24,7 +25,6 @@ import {
   Badge,
   Button,
   Descriptions,
-  Drawer,
   Empty,
   Select,
   Space,
@@ -554,6 +554,7 @@ export default function Queue() {
           },
         }}
         pagination={{
+          hideOnSinglePage: true,
           defaultPageSize: 10,
           showSizeChanger: true,
           pageSizeOptions: [10, 20, 50, 100],
@@ -577,7 +578,7 @@ export default function Queue() {
           '仅管理当前部署的队列。内部导出参数完全隐藏，任务重试会重新验证原用户权限；已完成的持久业务不会重复执行。',
         )}
       />
-      <Drawer
+      <DetailDialog
         title={t('任务详情')}
         width={720}
         open={active && detailOpen}
@@ -682,7 +683,7 @@ export default function Queue() {
             ))}
           </Space>
         )}
-      </Drawer>
+      </DetailDialog>
       {action.modal}
     </PageContainer>
   );

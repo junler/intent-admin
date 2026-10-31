@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useFormDraftStore } from './formDraft';
 
 import type { MenuRoute } from '@/router/menu';
 import { normalizeMenus } from '@/router/menu';
@@ -42,6 +43,7 @@ export const useUserStore = create<UserState>((set, get) => ({
   menus: [],
   ready: false,
   reset: () => {
+    useFormDraftStore.getState().clear();
     pending = undefined;
     set({ identity: null, menus: [], ready: false });
   },
