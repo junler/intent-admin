@@ -16,7 +16,7 @@
 
 </div>
 
-> ⚠️ 本项目处于开发阶段，功能与 API 尚未稳定。完整实施规格见 [`docs/implementation-plan.md`](docs/implementation-plan.md)。
+> ⚠️ 本项目处于开发阶段，功能与 API 尚未稳定。历史设计规格见 [`docs/implementation-plan.md`](docs/implementation-plan.md)，当前行为以代码、开发说明和部署文档为准。
 
 > **v1 功能已接入：** 登录与权限、系统管理、模型与存储配置、文件管理、监控与定时任务、异步导出、知识库、AI 计划和 MCP。前端以官方 [Ant Design Pro](https://github.com/ant-design/ant-design-pro.git) 为基础，采用 Umi Max、ProLayout、ProTable 和 ProForm；所有业务页面连接真实后端。
 
@@ -48,7 +48,7 @@
                           ┌──────────────────────┐
          HTTP API ───────▶│                      │
                           │   Capability 注册表   │──▶ 权限 ─▶ 风险门槛 ─▶ 校验
-   站内 AI Agent ───────▶│      + 执行器         │      ─▶ 执行 ─▶ Changeset ─▶ 审计
+   站内 AI Agent ───────▶│      + 执行器         │      ─▶ 执行 ─▶ 操作日志
                           │                      │
       MCP Server ───────▶│   （唯一执行路径）     │
                           └──────────────────────┘
@@ -108,7 +108,7 @@
 | 语言 | [Go](https://go.dev/) 1.26+ | Capability 层依赖泛型 |
 | Web 框架 | [gin](https://github.com/gin-gonic/gin) | |
 | ORM | [GORM](https://gorm.io/) + `driver/postgres` | |
-| 数据库 | [PostgreSQL](https://www.postgresql.org/) 14+ | changeset 快照用 `jsonb` |
+| 数据库 | [PostgreSQL](https://www.postgresql.org/) 14+ | 结构化配置、计划与任务载荷用 `jsonb` |
 | 缓存 / 会话 | [Redis](https://redis.io/) 6+ · [go-redis](https://github.com/redis/go-redis) | |
 | 异步任务 + 定时调度 | [Asynq](https://github.com/hibiken/asynq) | 队列、worker、重试、唯一性 + 动态定时任务 |
 | AI Agent | [Eino](https://github.com/cloudwego/eino) `adk` · [eino-ext](https://github.com/cloudwego/eino-ext) | 字节 CloudWeGo 的 Go LLM 应用框架 |
@@ -162,7 +162,7 @@ intent-admin/
 │   ├── cli/                serve / worker / mcp / migrate / version
 │   ├── capability/         ★ Capability 定义、注册表、执行器、dry-run/undo 助手
 │   ├── plan/               ★ Plan 状态机、步骤引用求值、预演、执行
-│   ├── changeset/          ★ 变更集落库与回滚引擎
+│   ├── changeset/          内部兼容逻辑与操作日志（历史及回滚入口已退休）
 │   ├── knowledge/          ★ 系统自省知识库
 │   ├── aiprovider/         ★ 模型服务商预设与 ChatModel 构建
 │   ├── storage/            ★ 存储驱动（s3 / local）
@@ -196,6 +196,24 @@ intent-admin/
 以上页面连接真实服务。AI 计划验收使用受控测试模型，确认和实际写入均走真实业务链路。
 
 ## 快速开始
+
+### 创建新的业务项目
+
+```bash
+intent-admin init config --name Orders --config configs/config.yaml
+# 设置数据库与 Redis 连接，创建空数据库。
+intent-admin init database --config configs/config.yaml
+# 可选 --with-demo；默认关闭示例菜单且不安装示例数据。
+```
+
+初始化会生成独立随机密钥，管理员随机密码仅写入
+`configs/initial-admin.txt`（0600），首次登录必须修改。已有配置和账号表不会被覆盖。
+升级现有项目继续使用 `migrate up`。源码、模块和二进制改名使用现有
+`scripts/rename.sh`。完整说明见 [部署文档](docs/deployment.md#new-project-initialization)。
+
+共享 CRUD 已接入版本冲突检测和事务请求去重，业务页面可复用远程选择、时间范围、
+文件/图片字段、明细行、详情抽屉及按记录授权的私有附件。
+组件接入示例见 [业务开发说明](docs/template-development.md)。
 
 ### 本地开发
 
@@ -280,7 +298,7 @@ docker compose up --build -d
 
 用户、角色、参数、字典数据及示例条目页面提供「导入」。下载模板后上传 xlsx，检查每行校验、错误报告及差异预览，再确认整批写入。每次最多 200 行、文件不超过 5 MB，并受变更集条数配置限制。导入仅创建新记录；用户初始密码取服务端配置，不接受密码列；凭据类参数禁止导入。确认有效期为 10 分钟，数据变化后需重新预览。
 
-升级时运行 `intent-admin migrate up`（新增迁移 `00010`、`00011`）。变更与审计、回滚及审批页面和接口已移除，旧菜单自动停用，已有变更集、审批历史和旧操作日志清空；应用不再生成变更快照。人工页面操作直接提交；AI 操作仍校验权限、风险上限及当前预览，由当前用户确认执行。
+升级时运行 `intent-admin migrate up`（最新迁移 `00012`）。变更与审计、回滚及审批页面和接口已移除，旧菜单自动停用，已有变更集、审批历史和旧操作日志清空；应用不再生成变更快照。人工页面操作直接提交；AI 操作仍校验权限、风险上限及当前预览，由当前用户确认执行。
 
 ### 队列控制与 OAuth
 
@@ -304,7 +322,7 @@ MCP Resources 提供当前账号可访问的功能描述、字典、实体知识
 | `ai.max_risk` | `high` | AI 可执行的风险上限。设 `critical` 会在启动时告警 |
 | `ai.max_affected` | `200` | 单个 Plan 影响条数上限，超出强制人工执行 |
 | `mcp.max_risk` | `low` | **默认只读**。调高前请读「安全说明」 |
-| `changeset.retain_days` | `90` | 变更历史保留天数 |
+| `changeset.max_items_per_set` | `2000` | 单次写操作影响上限 |
 | `export.max_rows` | `50000` | 同步导出上限，超出转后台异步导出 |
 | `task.scheduler` | `true` | 是否内嵌定时任务调度器。多副本部署**只能有一个副本为 true** |
 
@@ -360,7 +378,7 @@ intent-admin version
 - **`mcp.max_risk` 默认 `low` 是有意的** —— 调高后持有令牌的外部 AI 客户端可以修改你的数据。服务端两步确认降低了风险但不消除。建议只在受控环境开启，并用令牌 `scopes` 与 `max_risk` 收窄范围。
 - **站内 AI 的写操作始终需要人工确认** —— 这不可通过配置关闭。Agent 在代码层面没有直接写数据的路径。
 - **`critical` 操作 AI 永远不能执行** —— 删角色、改超管、清空日志、修改权限只能人工在页面完成。
-- **`jwt.secret` 和 `app.encrypt_key` 必须备份** —— 模型 API Key 与存储 Secret 用它加密后存库。密钥丢失则这些凭证全部不可恢复，只能重新填一遍。轮换用 `intent-admin migrate rekey --old-key=...`（需旧钥在手）。凭证回滚使用按保留期到期的 Redis 加密补偿记录，依赖 `jwt.secret`；轮换 JWT secret 会使已有会话及这类补偿记录失效。
+- **`jwt.secret` 和 `app.encrypt_key` 必须备份** —— 模型 API Key 与存储 Secret 用它加密后存库。密钥丢失则这些凭证全部不可恢复，只能重新填一遍。轮换用 `intent-admin migrate rekey --old-key=...`（需旧钥在手）。运行时不再保存回滚凭据；轮换 JWT secret 会使已有浏览器会话失效。
 - **模型服务与存储配置不对 AI 开放** —— 这是硬约束，启动时有自检强制。原因：这两处含 `base_url` / `endpoint`，一旦 AI 能改，一次提示注入就能把全部会话数据与上传文件导向攻击者的服务器，而系统表面上毫无异常。
 - **访问令牌是提权面** —— 明文只在创建时显示一次，库中只存 SHA-256；令牌管理功能本身不通过 MCP 暴露。
 - **超管账号受硬保护** —— 不可删除、停用，不可被非超管修改。

@@ -23,6 +23,7 @@ import (
 	"github.com/junler/intent-admin/internal/cache"
 	"github.com/junler/intent-admin/internal/config"
 	"github.com/junler/intent-admin/internal/dbx"
+	"github.com/junler/intent-admin/internal/pkg/concurrency"
 	"github.com/junler/intent-admin/internal/pkg/errcode"
 )
 
@@ -375,6 +376,11 @@ func (s *Service) Plan(ctx context.Context, r Resource, in Input, op string, p P
 		if err != nil {
 			return nil, err
 		}
+		if op == "update" {
+			if err := concurrency.Check(in.Version, ID(row, "version")); err != nil {
+				return nil, err
+			}
+		}
 		secret := r.Name == "config" && (IsCredentialConfigKey(fmt.Sprint(row["config_key"])) || IsCredentialConfigKey(fmt.Sprint(patch["config_key"])))
 		if secret && p.Source != "http" {
 			return nil, errcode.Forbiddenf("凭据参数只能在专用页面管理")
@@ -386,7 +392,7 @@ func (s *Service) Plan(ctx context.Context, r Resource, in Input, op string, p P
 			return nil, err
 		}
 		if op == "delete" {
-			out = append(out, Change{ID: id, Label: fmt.Sprint(row[r.Label]), Op: op, Before: map[string]any{"del_flag": "0"}, After: map[string]any{"del_flag": "2"}, SecretConfig: secret, ConfigKey: fmt.Sprint(row["config_key"])})
+			out = append(out, Change{Version: ID(row, "version"), ID: id, Label: fmt.Sprint(row[r.Label]), Op: op, Before: map[string]any{"del_flag": "0"}, After: map[string]any{"del_flag": "2"}, SecretConfig: secret, ConfigKey: fmt.Sprint(row["config_key"])})
 			continue
 		}
 		if err = s.validate(ctx, r, row, patch, false, p); err != nil {
@@ -399,7 +405,7 @@ func (s *Service) Plan(ctx context.Context, r Resource, in Input, op string, p P
 				after[f] = v
 			}
 		}
-		out = append(out, Change{ID: id, Label: fmt.Sprint(row[r.Label]), Op: "update", Before: before, After: after, SecretConfig: secret, ConfigKey: fmt.Sprint(row["config_key"])})
+		out = append(out, Change{Version: ID(row, "version"), ID: id, Label: fmt.Sprint(row[r.Label]), Op: "update", Before: before, After: after, SecretConfig: secret, ConfigKey: fmt.Sprint(row["config_key"])})
 	}
 	return out, nil
 }
@@ -421,6 +427,7 @@ func (s *Service) Apply(ctx context.Context, r Resource, changes []Change, p Pri
 					return nil, err
 				}
 				row["password"] = string(hash)
+				row["must_change_password"] = true
 			}
 			if err := d.Table(r.Table).Clauses(clause.Returning{Columns: []clause.Column{{Name: r.ID}}}).Create(&row).Error; err != nil {
 				return nil, dbError(err)
@@ -436,7 +443,11 @@ func (s *Service) Apply(ctx context.Context, r Resource, changes []Change, p Pri
 			}
 			changes[i].After = safe
 		} else if len(ch.After) > 0 {
-			res := d.Table(r.Table).Where(r.ID+" = ? AND del_flag='0'", ch.ID).Updates(row)
+			query := d.Table(r.Table).Where(r.ID+" = ? AND del_flag='0'", ch.ID)
+			if ch.Version > 0 {
+				query = query.Where("version=?", ch.Version)
+			}
+			res := query.Updates(row)
 			if res.Error != nil {
 				return nil, dbError(res.Error)
 			}

@@ -20,6 +20,7 @@ const (
 //
 // Delete together with internal/feature/demo once the real modules land.
 type DemoItem struct {
+	Version  int64  `gorm:"column:version;->"`
 	ItemID   int64  `gorm:"column:item_id;primaryKey;autoIncrement"`
 	Name     string `gorm:"column:name"`
 	Category string `gorm:"column:category"`

@@ -10,12 +10,14 @@ import (
 	"github.com/junler/intent-admin/internal/capability"
 	"github.com/junler/intent-admin/internal/dbx"
 	"github.com/junler/intent-admin/internal/model"
+	"github.com/junler/intent-admin/internal/pkg/concurrency"
 	"github.com/junler/intent-admin/internal/pkg/errcode"
 	"github.com/junler/intent-admin/internal/pkg/paginate"
 )
 
 // DemoItemView is the row shape returned to clients.
 type DemoItemView struct {
+	Version    int64     `json:"version"`
 	ItemID     int64     `json:"itemId"`
 	Name       string    `json:"name"`
 	Category   string    `json:"category"`
@@ -29,9 +31,11 @@ type DemoItemView struct {
 // DemoListIn is the filter for the demo list.
 type DemoListIn struct {
 	paginate.Query
-	Name     string `json:"name"     form:"name"     jsonschema:"名称，模糊匹配"`
-	Category string `json:"category" form:"category" jsonschema:"分类，精确匹配"`
-	Status   string `json:"status"   form:"status"   validate:"omitempty,oneof=0 1" jsonschema:"状态：0 正常，1 停用"`
+	Name      string `json:"name"     form:"name"     jsonschema:"名称，模糊匹配"`
+	Category  string `json:"category" form:"category" jsonschema:"分类，精确匹配"`
+	BeginTime string `json:"beginTime" form:"beginTime"`
+	EndTime   string `json:"endTime" form:"endTime"`
+	Status    string `json:"status"   form:"status"   validate:"omitempty,oneof=0 1" jsonschema:"状态：0 正常，1 停用"`
 }
 
 // DemoListOut is the paginated result. The field name `rows` is what
@@ -47,6 +51,7 @@ type DemoListOut struct {
 // from "set to zero", which matters for partial updates: without it there is
 // no way to clear a remark or set an amount to 0.
 type DemoUpdateIn struct {
+	Version  *int64  `json:"version,omitempty" validate:"omitempty,gt=0"`
 	ItemID   int64   `json:"itemId"   uri:"itemId" validate:"required,gt=0" jsonschema:"条目 ID"`
 	Name     *string `json:"name"     validate:"omitempty,min=1,max=100" jsonschema:"名称"`
 	Category *string `json:"category" validate:"omitempty,max=32"        jsonschema:"分类"`
@@ -93,6 +98,15 @@ func (s *DemoService) List(ctx context.Context, in DemoListIn) (DemoListOut, err
 		db = db.Where("status = ?", in.Status)
 	}
 
+	for _, filter := range []struct{ value, op string }{{in.BeginTime, ">="}, {in.EndTime, "<="}} {
+		if filter.value != "" {
+			stamp, err := time.Parse(time.RFC3339, filter.value)
+			if err != nil {
+				return DemoListOut{}, errcode.BadRequestf("时间筛选格式无效")
+			}
+			db = db.Where("create_time "+filter.op+" ?", stamp)
+		}
+	}
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
 		return DemoListOut{}, errcode.Internalf("查询失败").Wrap(err)
@@ -104,7 +118,7 @@ func (s *DemoService) List(ctx context.Context, in DemoListIn) (DemoListOut, err
 	}
 
 	var items []model.DemoItem
-	if err := db.Scopes(order, in.Scope()).Order("item_id ASC").Find(&items).Error; err != nil {
+	if err := order(db).Scopes(in.Scope()).Order("item_id ASC").Find(&items).Error; err != nil {
 		return DemoListOut{}, errcode.Internalf("查询失败").Wrap(err)
 	}
 
@@ -128,6 +142,9 @@ func (s *DemoService) Update(ctx context.Context, in DemoUpdateIn) (capability.E
 		return capability.Empty{}, errcode.Internalf("查询失败").Wrap(err)
 	}
 
+	if err := concurrency.Check(in.Version, current.Version); err != nil {
+		return capability.Empty{}, err
+	}
 	patch, before := demoPatch(in, current)
 	if len(patch) == 0 {
 		// Nothing to do. Returning success with an empty changeset keeps the
@@ -139,10 +156,12 @@ func (s *DemoService) Update(ctx context.Context, in DemoUpdateIn) (capability.E
 		patch["update_by"] = actor.UserName
 	}
 
-	if err := db.Model(&model.DemoItem{}).
-		Where("item_id = ?", in.ItemID).
-		Updates(patch).Error; err != nil {
-		return capability.Empty{}, errcode.Internalf("更新失败").Wrap(err)
+	res := db.Model(&model.DemoItem{}).Where("item_id = ? AND version = ? AND del_flag = ?", in.ItemID, current.Version, model.DelFlagAlive).Updates(patch)
+	if res.Error != nil {
+		return capability.Empty{}, errcode.Internalf("更新失败").Wrap(res.Error)
+	}
+	if res.RowsAffected != 1 {
+		return capability.Empty{}, errcode.Conflictf("记录已被其他操作修改，请刷新后重新编辑")
 	}
 
 	// Reporting the change is what makes this operation reversible and what
@@ -251,6 +270,7 @@ func stripAudit(patch map[string]any) map[string]any {
 func toDemoView(it model.DemoItem) DemoItemView {
 	return DemoItemView{
 		ItemID:     it.ItemID,
+		Version:    it.Version,
 		Name:       it.Name,
 		Category:   it.Category,
 		Amount:     it.Amount,
@@ -275,4 +295,15 @@ func DemoLabel(row map[string]any) string {
 		return fmt.Sprint(row["item_id"])
 	}
 	return name
+}
+
+func (s *DemoService) Get(ctx context.Context, id int64) (DemoItemView, error) {
+	var row model.DemoItem
+	if err := dbx.DBFrom(ctx, s.db).Where("item_id=? AND del_flag='0'", id).First(&row).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return DemoItemView{}, errcode.NotFoundf("条目不存在")
+		}
+		return DemoItemView{}, err
+	}
+	return toDemoView(row), nil
 }

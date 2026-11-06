@@ -63,6 +63,10 @@ jobs:
         run: go test ./internal/plan ./internal/changeset ./internal/automation -v -count=1
         env:
           INTENT_ADMIN_TEST_DSN: host=127.0.0.1 port=5432 user=postgres password=integration-test-only dbname=intent_plan_integration sslmode=disable
+      - name: Template concurrency, initialization and attachment integration
+        run: go test ./internal/idempotency ./internal/cli ./internal/service ./internal/feature/resources -v -count=1
+        env:
+          INTENT_ADMIN_TEST_DSN: host=127.0.0.1 port=5432 user=postgres password=integration-test-only dbname=intent_plan_integration sslmode=disable
       - name: XLSX import transaction integration
         run: go test ./internal/feature/importer -v -count=1
         env:

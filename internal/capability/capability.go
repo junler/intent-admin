@@ -70,6 +70,8 @@ type Meta struct {
 	// Idempotent means repeating the call with the same arguments has no
 	// further effect. Surfaced to MCP clients as idempotentHint.
 	Idempotent bool
+	// Deduplicate opts credential-free results into transactional request receipts.
+	Deduplicate bool
 	// Reversible means Undo is provided. When false the UI must say so in red:
 	// an irreversible action is the one case where "are you sure" is warranted.
 	Reversible bool
@@ -127,6 +129,9 @@ func Register[I, O any](c Capability[I, O]) {
 		// Fail closed: an undeclared risk is the most dangerous one.
 		warnf("capability %q 未声明 Risk，已按 critical 处理（AI 与 MCP 都无法执行）", m.Name)
 		m.Risk = RiskCritical
+	}
+	if m.Deduplicate && !m.Mutating {
+		panic(fmt.Sprintf("capability %q: Deduplicate requires Mutating", m.Name))
 	}
 	if m.Mutating && c.DryRun == nil {
 		panic(fmt.Sprintf("capability %q: Mutating 为 true 时必须提供 DryRun（见 dryrun 包里的通用助手）", m.Name))

@@ -65,6 +65,9 @@ func (s *Service) AuthenticatePAT(ctx context.Context, plain string) (*capabilit
 	if err != nil {
 		return nil, err
 	}
+	if user.MustChangePassword {
+		return nil, errcode.Forbiddenf("请先在页面修改初始密码")
+	}
 	_, perms, err := s.identity.RolesAndPermissions(ctx, user.UserID)
 	if err != nil {
 		return nil, err

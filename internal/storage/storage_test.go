@@ -53,6 +53,7 @@ func TestLocalDriverRoundTripAndTraversal(t *testing.T) {
 		t.Fatal("deleted file still exists")
 	}
 }
+
 // A symlink anywhere above the configured root is the operator's own choice —
 // /var is a symlink to private/var on macOS, and /data often points at a mount.
 // Only the caller-supplied key may not traverse one.

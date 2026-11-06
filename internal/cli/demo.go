@@ -9,7 +9,7 @@ import (
 
 // The example module ships no seed rows, because a real deployment should not
 // grow sample records on first start. These commands let someone evaluating
-// the template fill the table to exercise previews, changesets and rollback,
+// the template fill the table to exercise list filters and previews,
 // and then clear it before building the real thing.
 func newDemoCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -17,7 +17,7 @@ func newDemoCmd() *cobra.Command {
 		Short: "示例模块的测试数据",
 		Long: `填充或清空示例模块（demo_item）的测试数据。
 
-示例模块用于体验 Capability 层的预览、变更集与回滚。正式项目可以先执行
+示例模块用于体验 Capability 层的列表、表单、预览和业务附件。正式项目可以先执行
 demo clear 清空数据，再按 CONTRIBUTING.md 的「Remove the example module」删除代码。`,
 	}
 	cmd.AddCommand(newDemoFillCmd(), newDemoClearCmd())

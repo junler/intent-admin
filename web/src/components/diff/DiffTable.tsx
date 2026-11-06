@@ -71,10 +71,10 @@ function ChangeCards({ changes }: { changes: Change[] }) {
   useEffect(() => setPage(1), [changes]);
   return (
     <div className="intent-diff-cards">
-      {changes.slice((page - 1) * 10, page * 10).map((change, index) => (
+      {changes.slice((page - 1) * 10, page * 10).map((change) => (
         <section
           className="intent-diff-record"
-          key={`${page}-${index}-${change.entity}-${change.id}`}
+          key={`${page}-${change.entity}-${change.id}-${change.op}-${JSON.stringify(change.fields)}`}
         >
           <header className="intent-diff-record-header">
             <Tag color={opColor[change.op]}>{OpLabel[change.op]}</Tag>

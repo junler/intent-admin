@@ -22,6 +22,7 @@ type Principal struct {
 // which fields may reach SQL; binding an unrelated field never grants access.
 type Input struct {
 	paginate.Query
+	Version           *int64     `json:"version,omitempty" validate:"omitempty,gt=0"`
 	ID                int64      `json:"id,omitempty" uri:"id" form:"id"`
 	IDs               []int64    `json:"ids,omitempty" uri:"ids" collection_format:"csv"`
 	UserID            *int64     `json:"userId,omitempty" form:"userId"`
@@ -170,6 +171,7 @@ func View(row map[string]any) map[string]any {
 }
 
 type Change struct {
+	Version       int64
 	ID            int64
 	Label, Op     string
 	Before, After map[string]any

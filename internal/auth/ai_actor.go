@@ -24,6 +24,9 @@ func (s *Service) CurrentAIActor(ctx context.Context, userID int64) (*capability
 	if err != nil {
 		return nil, err
 	}
+	if u.MustChangePassword {
+		return nil, errcode.Forbiddenf("请先在页面修改初始密码")
+	}
 	_, perms, err := identity.RolesAndPermissions(ctx, userID)
 	if err != nil {
 		return nil, err

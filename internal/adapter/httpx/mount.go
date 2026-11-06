@@ -111,6 +111,9 @@ func invokeHandler(e *capability.Entry) gin.HandlerFunc {
 		}
 		result := &capability.CallResult{}
 		ctx := capability.WithCallResult(c.Request.Context(), result)
+		if e.Deduplicate {
+			ctx = capability.WithRequestKey(ctx, c.GetHeader("Idempotency-Key"))
+		}
 		out, err := capability.InvokeTyped(ctx, e.Name, in)
 		if err != nil {
 			response.Fail(c, err)

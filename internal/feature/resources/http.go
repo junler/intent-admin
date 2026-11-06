@@ -33,6 +33,7 @@ func (s *Service) Mount(g *gin.RouterGroup) {
 	g.POST("/system/ai-provider/test", s.testProvider)
 	g.POST("/system/storage/test", s.testStorage)
 	g.POST("/system/upload", s.upload)
+	g.POST("/system/attachment/upload", s.attachmentUpload)
 	g.POST("/system/user/profile/avatar", s.avatar)
 	g.GET("/system/upload/:uploadId/url", s.fileURL)
 	g.GET("/system/upload/:uploadId/download", s.download)

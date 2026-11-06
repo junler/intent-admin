@@ -79,7 +79,11 @@ func operation(e *capability.Entry) map[string]any {
 		"tags":        tagsOf(e),
 		"responses":   responses(e.OutputSchema),
 	}
-	if params := pathParams(e.HTTP.Path); len(params) > 0 {
+	params := pathParams(e.HTTP.Path)
+	if e.Deduplicate {
+		params = append(params, map[string]any{"name": "Idempotency-Key", "in": "header", "required": false, "description": "请求重试编号，同一账号、功能和参数在 24 小时内只执行一次", "schema": map[string]any{"type": "string", "minLength": 8, "maxLength": 128}})
+	}
+	if len(params) > 0 {
 		op["parameters"] = params
 	}
 	// Inputs are described as a request body for verbs that carry one, and

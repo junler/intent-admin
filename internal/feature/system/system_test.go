@@ -140,6 +140,11 @@ func TestSystemManagement(t *testing.T) {
 	reject(ctx, "system.role.remove", map[string]any{"ids": []int64{1}}, errcode.Forbidden)
 	low := capability.WithActor(context.Background(), &capability.Actor{UserID: uid, UserName: "reader", Source: capability.SourceHTTP, Perms: []string{"system:user:edit"}, MaxRisk: capability.RiskCritical})
 	reject(low, "system.user.authRole", map[string]any{"userId": uid, "roleIds": []int64{1}}, errcode.Forbidden)
+	version := got["version"].(int64)
+	call(ctx, "system.user.update", map[string]any{"userId": uid, "version": version, "nickName": "Fresh"})
+	reject(ctx, "system.user.update", map[string]any{"userId": uid, "version": version, "nickName": "Stale"}, errcode.Conflict)
+	// Created accounts must change the initial password before using delegated tokens.
+	call(ownFor(uid), "system.profile.updatePwd", map[string]any{"oldPassword": "initial-pass", "newPassword": "chosen-pass"})
 	// PAT creation returns its plaintext exactly once; listing and audit-safe
 	// snapshots expose only its prefix. Revocation is checked on every request.
 	own := capability.WithActor(context.Background(), &capability.Actor{UserID: uid, UserName: "reader", Source: capability.SourceHTTP, Perms: []string{}, MaxRisk: capability.RiskCritical})
@@ -320,7 +325,7 @@ func TestSystemManagement(t *testing.T) {
 		t.Fatal(ownInfo)
 	}
 
-	if err = systemService.CheckPassword(context.Background(), uid, "initial-pass"); err != nil {
+	if err = systemService.CheckPassword(context.Background(), uid, "chosen-pass"); err != nil {
 		t.Fatal("profile mass-assigned password", err)
 	}
 	sessionKey := c.Key("login_token", "fake-session")
@@ -371,4 +376,8 @@ func TestSystemManagement(t *testing.T) {
 	call(ctx, "system.user.remove", map[string]any{"ids": []int64{uid}})
 	call(ctx, "system.menu.remove", map[string]any{"ids": []int64{mid}})
 	call(ctx, "system.role.remove", map[string]any{"ids": []int64{rid}})
+}
+
+func ownFor(id int64) context.Context {
+	return capability.WithActor(context.Background(), &capability.Actor{UserID: id, UserName: "reader", Source: capability.SourceHTTP, Perms: []string{}, MaxRisk: capability.RiskCritical})
 }

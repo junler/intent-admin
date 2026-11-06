@@ -33,6 +33,7 @@ import (
 	"github.com/junler/intent-admin/internal/feature/monitor"
 	"github.com/junler/intent-admin/internal/feature/resources"
 	"github.com/junler/intent-admin/internal/feature/system"
+	"github.com/junler/intent-admin/internal/idempotency"
 	"github.com/junler/intent-admin/internal/knowledge"
 	"github.com/junler/intent-admin/internal/middleware"
 	"github.com/junler/intent-admin/internal/notification"
@@ -151,6 +152,7 @@ func (a *App) installExecutor() error {
 		Validate:          func(in any) error { return v.Struct(in) },
 		MaxChangesetItems: a.Cfg.Changeset.MaxItemsPerSet,
 		WriteAudit:        a.Changesets.WriteAudit,
+		Deduplicate:       idempotency.New(a.DB, a.Cfg.JWT.Secret).Run,
 	})
 	return nil
 }
@@ -160,6 +162,7 @@ func (a *App) registerFeatures() error {
 	a.System = system.Register(a.DB, a.Cache, a.Cfg)
 	a.System.OnDictionaryChange = a.Knowledge.Invalidate
 	a.Resources = resources.Register(a.DB, a.Cache, a.Cfg, a.Secret)
+	a.Resources.RegisterAttachmentPolicy("demo.item", resources.AttachmentPolicy{Authorize: demo.AttachmentAccess(a.DB)})
 	if err := a.Resources.Bootstrap(context.Background()); err != nil {
 		return err
 	}

@@ -21,10 +21,10 @@ The API listens on port 8080 and Umi Max on 5173. `make dev` and `npm --prefix w
 - Register business operations in `internal/capability`; HTTP, AI and MCP all use that executor.
 - Keep database policies in services. Feature packages bind typed inputs, previews, recording and compensation to capabilities.
 - Use `dbx.DBFrom(ctx, db)` in queries and writes so operations join the ambient transaction. Generic dry-run and undo helpers do this too.
-- Record every changed row explicitly. The write and its changeset must commit together.
+- Record every changed row explicitly. Business writes and any associated task outbox/receipt must commit together. The runtime uses the Recorder for previews and affected-row bounds; change snapshots are disabled.
 - Use `dbx.AfterCommit` for cache invalidation. A failed nested transaction must not invalidate or refill authorization caches.
 - Preview handlers are read-only. Their context rejects GORM writes.
-- Configuration credentials use AES-256-GCM. Never put plaintext, ciphertext, passwords or token hashes into previews or changeset snapshots. Opaque, expiring vault references support credential compensation.
+- Configuration credentials use AES-256-GCM. Never put plaintext, ciphertext, passwords or token hashes into previews or changeset snapshots. Legacy compensation helpers remain for internal tests; the current runtime never writes credential vault records.
 - AI/MCP-visible writes require a preview. Model/storage configuration writes, personal password changes and token creation remain closed to these entry points.
 
 ## Add a business module
@@ -42,7 +42,7 @@ no central list needs editing.
 2. **Model and service.** `internal/model` for the row, `internal/service` for
    the policy. Query through `dbx.DBFrom(ctx, db)`.
 3. **Feature package.** `internal/feature/<module>` registering the
-   capabilities, each with `DryRun` and, for writes, `Undo`. See the worked
+   capabilities, each write with `DryRun`. `Undo` is optional internal compensation metadata; the runtime has no rollback endpoints. See the worked
    example below; `internal/feature/demo` is the same thing end to end.
 4. **Bootstrap.** One `<module>.Register(a.DB)` call in `internal/bootstrap`.
    Pass `a.Tasks` too if the module ships scheduler handlers.
@@ -57,7 +57,7 @@ no central list needs editing.
    `internal/feature/importer`.
 8. **Coded columns.** If a column stores dictionary codes, add an
    `entity.column` entry to `web/src/components/diff/fieldMetadata.ts` so
-   changeset and rollback views show labels instead of raw values.
+   AI previews show labels instead of raw values.
 
 Run `go test ./... && npm --prefix web run lint && npm --prefix web test`.
 
@@ -66,11 +66,10 @@ Run `go test ./... && npm --prefix web run lint && npm --prefix web test`.
 `demo` exists so the Capability layer can be read end to end. To drop it:
 run `intent-admin demo clear --yes`, then delete `internal/feature/demo`,
 `internal/service/demo.go`, `internal/model/demo_item.go`,
-`web/src/pages/demo`, `migrations/00001_demo_item.sql` and its menu rows, the
+`web/src/pages/demo`, its menu rows and the
 `demo.Register` call in `internal/bootstrap`, the `demo_item` entries in
 `internal/knowledge` and `web/src/components/diff/fieldMetadata.ts`, and the
-`/demo/item` specification in `internal/feature/importer`. Nothing else in the
-framework refers to it.
+`/demo/item` specification in `internal/feature/importer`. Keep released SQL migrations stable, including the example table and version trigger. New business modules can ignore the empty example table.
 
 ## Add a Capability
 
@@ -191,7 +190,7 @@ Test permission failures, risk limits, before/after conflicts, transaction rollb
 
 ## Pull requests
 
-Use a feature branch and a Conventional Commit title such as `feat: add notice expiry` or `fix: reject stale rollback`. Include the problem, resulting behavior, validation and migration instructions. Add backward-compatible migrations; do not rewrite an already released migration. The current versioned migrations define 29 application tables, excluding Goose metadata, including approvals, OAuth state, private notifications and the durable task outbox. Keep secrets and generated build output out of Git. Use English code comments and Chinese source product/error text with English catalogue entries for translated UI messages. For breaking changes, update the changelog with the migration path.
+Use a feature branch and a Conventional Commit title such as `feat: add notice expiry` or `fix: reject stale rollback`. Include the problem, resulting behavior, validation and migration instructions. Add backward-compatible migrations; do not rewrite an already released migration. Versioned migrations include retained legacy tables, OAuth state, private notifications, the durable task outbox, request receipts and attachment links. Keep secrets and generated build output out of Git. Use English code comments and Chinese source product/error text with English catalogue entries for translated UI messages. For breaking changes, update the changelog with the migration path.
 
 Report security vulnerabilities privately through the process in [SECURITY.md](SECURITY.md).
 
@@ -235,3 +234,38 @@ require the corresponding business removal permission when jobs are saved or run
 Run `go test ./internal/automation ./internal/task ./internal/notification`.
 `INTENT_ADMIN_TEST_DSN` enables the SQL integration suite in an isolated schema of
 a disposable `_integration` database, alongside the plan integration tests.
+
+## Template foundations
+
+Start new projects using `init config` and `init database`; the latter defaults
+to no sample menus or data. It refuses existing account tables and never resets
+an operator password. Source rebranding remains `scripts/rename.sh`; no code
+generator is required. Use environment variables for deployment-specific DB and
+Redis credentials, and keep generated configuration and initial credentials out
+of Git. See [deployment](docs/deployment.md#new-project-initialization).
+
+New editors must send the version returned by their detail endpoint. The shared
+`CrudPage` does this automatically; custom services can use `concurrency.Check`
+and a compare-and-update predicate, following `DemoService.Update`. New tables
+need their own version column and increment trigger. Legacy clients may omit
+version; document that they do not protect against stale browser edits.
+
+Set `Meta.Deduplicate` only for a transactional operation whose result contains
+no credential. The HTTP adapter passes `Idempotency-Key` to the executor. Internal
+callers may use `capability.WithRequestKey`; child operations never inherit the
+parent key. Permissions/risk precede replay; previews never write receipts.
+Receipts store HMAC digests of identity/key and input, and the successful result.
+Never opt password, token creation, or arbitrary secret-returning operations in.
+
+Attachment policies register at startup using
+`Resources.RegisterAttachmentPolicy(entity, AttachmentPolicy{Authorize: ...})`.
+The callback must verify that the record still exists and check the principal's
+live read or write authority on that record using `dbx.DBFrom`. Keep entity names
+as explicit registry keys. `demo.AttachmentAccess` is a small complete example.
+Do not grant business attachments by generic upload permission or ownership.
+
+[Template development](docs/template-development.md) demonstrates the remote
+selector, date ranges, files/images, detail drawer and master/detail form fields.
+Run the new database suites with `INTENT_ADMIN_TEST_DSN` alongside existing
+integration checks: `go test ./internal/idempotency ./internal/cli
+./internal/feature/resources` (on one shell line).

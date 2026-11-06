@@ -56,7 +56,21 @@ export function editFormValues(
 ): Row {
   const values = { ...record };
   for (const field of fields) {
+    if (
+      field.type === 'items' &&
+      field.fields &&
+      Array.isArray(values[field.name])
+    )
+      values[field.name] = values[field.name].map((row: Row) =>
+        editFormValues(field.fields ?? [], row),
+      );
     if (field.type === 'password') values[field.name] = '';
+    if (field.type === 'date' && values[field.name])
+      values[field.name] = dayjs(values[field.name]);
+    if (field.type === 'dateRange' && Array.isArray(values[field.name]))
+      values[field.name] = values[field.name].map((value: string) =>
+        dayjs(value),
+      );
     if (field.type === 'json' && typeof values[field.name] !== 'string')
       values[field.name] = values[field.name]
         ? JSON.stringify(values[field.name], null, 2)
@@ -70,8 +84,29 @@ export function writeFormValues(
 ): Row {
   const values = cleanForm(input);
   for (const field of fields) {
+    if (
+      field.type === 'items' &&
+      field.fields &&
+      Array.isArray(values[field.name])
+    )
+      values[field.name] = values[field.name].map((row: Row) =>
+        writeFormValues(field.fields ?? [], row),
+      );
+  }
+  for (const field of fields) {
     if (field.type === 'date' && values[field.name]?.toISOString)
       values[field.name] = values[field.name].toISOString();
+    if (field.type === 'dateRange') {
+      const range = values[field.name]?.map((value: any) =>
+        value?.toISOString ? value.toISOString() : value,
+      );
+      if (field.rangeKeys) {
+        delete values[field.name];
+        field.rangeKeys.forEach((key, i) => {
+          values[key] = range?.[i] ?? '';
+        });
+      } else if (range) values[field.name] = range;
+    }
     if (field.type === 'password' && !values[field.name])
       delete values[field.name];
     if (field.type === 'json' && values[field.name])
@@ -105,6 +140,20 @@ export function fillableValues(
         dayjs(value).isValid()
       )
         values[field.name] = dayjs(value);
+    } else if (field.type === 'dateRange') {
+      if (
+        Array.isArray(value) &&
+        value.length === 2 &&
+        value.every((item) => typeof item === 'string' && dayjs(item).isValid())
+      )
+        values[field.name] = value.map((item) => dayjs(item));
+    } else if (
+      field.type === 'items' ||
+      field.type === 'file' ||
+      field.type === 'image'
+    ) {
+      // Structured rows and upload IDs remain human-controlled browser values.
+      continue;
     } else if (field.type === 'switch') {
       if (typeof value === 'boolean') values[field.name] = value;
     } else if (field.type === 'number') {

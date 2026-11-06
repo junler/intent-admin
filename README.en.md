@@ -2,7 +2,7 @@
 
 [中文](README.md) · English
 
-Intent is an administration system where people and AI use the same typed capabilities. Writes have structured previews, persistent changesets and conflict-aware compensation. Every HTTP, AI and MCP execution passes through the same permission and risk checks.
+Intent is an administration system where people and AI use the same typed capabilities. AI writes have structured previews and owner confirmation; human page actions submit directly. Every HTTP, AI and MCP execution passes through the same permission and risk checks.
 
 ## Included
 
@@ -10,10 +10,10 @@ Intent is an administration system where people and AI use the same typed capabi
 - Users, roles, menus, extra grants, dictionaries, parameters, notices and files.
 - Online sessions, login/operation logs, server/cache monitoring, scheduled jobs, an integrated queue console and asynchronous Excel exports.
 - Encrypted model/storage configuration, connection tests, local storage and S3-compatible storage.
-- Conversational AI with page context, searchable capabilities, system knowledge, persisted plans, stepwise confirmation and approval by another person.
+- Conversational AI with page context, searchable capabilities, system knowledge, persisted plans and owner confirmation.
 - XLSX imports for five entity types, with row validation, error workbooks, previews and atomic confirmation.
 - MCP over Streamable HTTP and stdio, using revocable PATs or OAuth authorization, permission-filtered Resources and one-use write confirmations.
-- Atomic business writes and changesets; selective rollback checks current fields, preserves atomic compensation groups and records an inverse changeset.
+- Atomic business writes, version-aware edits, transactional retry receipts and ordinary operation logs.
 
 The backend uses Go, Gin, GORM/PostgreSQL, Redis, Asynq and Goose. The frontend uses React, Ant Design, Pro Components, Umi Max and Zustand. [The implementation plan](docs/implementation-plan.md) records the design decisions and implementation status.
 
@@ -40,15 +40,13 @@ make dev
 
 Umi Max serves http://localhost:5173 and proxies the API to port 8080. `make build` embeds the frontend in `bin/intent-admin`; no Node runtime is needed in production. See [CONTRIBUTING.md](CONTRIBUTING.md) for a complete Capability example.
 
-The interface uses the official Ant Design Pro scaffold, ProLayout, ProTable and ProForm, with consistent cards, spacing, responsive tables and navigation. Use the header language picker for Chinese or English. The choice is saved locally; switching follows Umi's normal full-page reload behavior. Translations cover menus, forms, previews, approvals, queue controls and known API messages; user-entered business content remains unchanged.
+The interface uses the official Ant Design Pro scaffold, ProLayout, ProTable and ProForm, with consistent cards, spacing, responsive tables and navigation. Use the header language picker for Chinese or English. The choice is saved locally; switching follows Umi's normal full-page reload behavior. Translations cover menus, forms, previews, queue controls and known API messages; user-entered business content remains unchanged.
 
-## Import, approve and roll back
+## Import and confirm
 
-The users, roles, parameters, dictionary-data and demo-item pages provide an **Import** action. Download a template, upload one `.xlsx` file, review row errors and the full preview, then confirm the batch. Imports only create new records: existing unique keys are rejected. Each file is limited to 200 data rows and 5 MB, with a lower row limit when configured by `changeset.max_items_per_set`. User imports use the server's initial-password setting and do not accept password or authorization columns. Credential-bearing parameters cannot be imported. A preview belongs to its creator, expires after 10 minutes and is checked again before an atomic commit into one changeset.
+The users, roles, parameters, dictionary-data and demo-item pages provide an **Import** action. Download a template, upload one `.xlsx` file, review row errors and the full preview, then confirm the batch. Imports only create new records: existing unique keys are rejected. Each file is limited to 200 data rows and 5 MB, with a lower row limit when configured by `changeset.max_items_per_set`. User imports use the server's initial-password setting and do not accept password or authorization columns. Credential-bearing parameters cannot be imported. A preview belongs to its creator, expires after 10 minutes and is checked again before an atomic commit in one business transaction.
 
-On an AI plan, choose **Request another person's approval** and assign a different account with `ai:plan:approve`, AI access and the original operations' permissions. The reviewer receives a private notification, inspects the recorded differences in the approval center, and approves or rejects the request. The proposer executes an approved plan. Both people's current permissions and risk limits, the plan and the affected data are rechecked; changes require a new preview and approval. Requests can be revoked or expire, and subsequent requests preserve the earlier decision history. Approval does not grant either person additional permissions.
 
-In a changeset's details, select individual items and preview their rollback. Items sharing custom compensation data are selected together. The confirmation is bound to the exact selection and reviewed state. Independent valid items can complete while conflicting items retain their field-level reasons for retry. The parent changeset distinguishes partial rollback, complete rollback and failed items. Each successful attempt links to a new changeset, which can itself be rolled back to restore the previous state.
 
 ## Queue console
 
@@ -56,9 +54,9 @@ In a changeset's details, select individual items and preview their rollback. It
 
 ## Configuration and deployment
 
-Configuration precedence is environment variables, the selected YAML file, then defaults. Every field can be set with an `INTENT_ADMIN_` variable, for example `INTENT_ADMIN_DB_PASSWORD` or `INTENT_ADMIN_AI_MAX_RISK`. Generate the signing and encryption keys independently with `openssl rand -base64 32`. Production rejects the example keys. Back up the encryption key with the database: losing it makes encrypted credentials unrecoverable. Preserve `jwt.secret` too; encrypted Redis credential-compensation records depend on it, and rotating it invalidates existing sessions and those records.
+Configuration precedence is environment variables, the selected YAML file, then defaults. Every field can be set with an `INTENT_ADMIN_` variable, for example `INTENT_ADMIN_DB_PASSWORD` or `INTENT_ADMIN_AI_MAX_RISK`. Generate the signing and encryption keys independently with `openssl rand -base64 32`. Production rejects the example keys. Back up the encryption key with the database: losing it makes encrypted credentials unrecoverable. Preserve `jwt.secret` too; rotating it invalidates existing browser sessions.
 
-Run `intent-admin migrate up` before starting a new version. `migrate seed` fills missing initial menus and settings without replacing existing passwords, settings or edited menus. Versioned migrations include approval records, OAuth clients/grants/tokens, private notifications and item-level rollback metadata. Use one scheduler per deployment; run additional `worker` processes for queue capacity.
+Run `intent-admin migrate up` before starting a new version. `migrate seed` fills missing initial menus and settings without replacing existing passwords, settings or edited menus. Versioned migrations include retained legacy tables, OAuth clients/grants/tokens, private notifications, request receipts and attachment links. Use one scheduler per deployment; run additional `worker` processes for queue capacity.
 
 See [deployment details](docs/deployment.md), the Compose file and the Nginx example for OAuth origins, streaming, S3 URLs, backups and separate workers. Release tags build six platform archives and two Linux container architectures; they do not deploy an environment.
 
@@ -88,7 +86,7 @@ The default MCP risk limit is `low`. Write-capable deployments must explicitly c
 
 ## Checks and licenses
 
-Run `make test`, `make test-web`, `make lint`, `npm --prefix web run i18n:check` and `make build`. CI also runs PostgreSQL/Redis integration suites for authentication, authorization, imports, cross-person approvals, selective rollback, OAuth, private notifications, configuration/files, scheduling and queue/export controls. [CONTRIBUTING.md](CONTRIBUTING.md#validation) documents the opt-in integration flags.
+Run `make test`, `make test-web`, `make lint`, `npm --prefix web run i18n:check` and `make build`. CI also runs PostgreSQL/Redis integration suites for authentication, authorization, imports, plan confirmation, internal compensation, OAuth, private notifications, configuration/files, scheduling and queue/export controls. [CONTRIBUTING.md](CONTRIBUTING.md#validation) documents the opt-in integration flags.
 
 Intent is [MIT licensed](LICENSE). Ant Design Pro's upstream license is retained in `web/ANT_DESIGN_PRO_LICENSE`. The optional bundled MinIO service is a separate AGPL-3.0 program built from the pinned upstream source; its license is included in that image.
 
@@ -101,3 +99,20 @@ The admin frontend is based on [Ant Design Pro](https://github.com/ant-design/an
 ![User management](docs/screenshots/extensions-users-zh.png)
 
 ![AI plan preview](docs/screenshots/ai-plan.png)
+
+## Starting a business project
+
+Run `intent-admin init config --name Orders --config configs/config.yaml`, set
+PostgreSQL/Redis connection settings, create an empty database, then run
+`intent-admin init database`. Add `--with-demo` for sample menus and rows.
+The administrator password is random, written only to a 0600 credential file,
+and must be changed on first login. Existing configuration and account tables
+are never overwritten. Upgrades use `migrate up` (latest migration: 00012).
+Use the existing `scripts/rename.sh` for module/binary/source rebranding.
+
+Shared CRUD editors now submit record versions and transactional idempotency
+keys. Business pages can reuse remote selectors, date ranges, upload fields,
+master/detail form rows, detail drawers and record-authorized private attachments.
+See [template development](docs/template-development.md) and
+[deployment](docs/deployment.md) for the contracts and examples.
+ordinary operation logs remain available in monitoring.

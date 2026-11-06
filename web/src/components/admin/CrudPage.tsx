@@ -14,6 +14,8 @@ import {
   Button,
   Card,
   Empty,
+  Drawer,
+  Descriptions,
   Form,
   Modal,
   Popover,
@@ -43,6 +45,7 @@ import {
   writeFormValues,
 } from './actions';
 import { allRows } from './data';
+import { AttachmentEditor } from './AttachmentEditor';
 import { Fields } from './Fields';
 import { listCapability, readCrudQuery, writeCrudQuery } from './query';
 import type { CrudConfig, Field, Row, RowAction } from './types';
@@ -67,6 +70,7 @@ export function CrudPage(cfg: CrudConfig) {
   const [filters, setFilters] = useState<Row>(initialQuery.filters);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<React.Key[]>([]);
+  const [detail, setDetail] = useState<Row>();
   const [editing, setEditing] = useState<Row | null>();
   const editorId = `editor.${cfg.base}.${editing ? String(editing[cfg.idKey]) : 'create'}`;
   const draft = useFormDraftStore((state) => state.draft);
@@ -97,7 +101,11 @@ export function CrudPage(cfg: CrudConfig) {
           String(editing[cfg.idKey]) === recordId);
       const allowed = hasPermission(
         permissions,
-        cfg.perm ? `${cfg.perm}:${mode === 'create' ? 'add' : 'edit'}` : '',
+        mode === 'create'
+          ? (cfg.createPerm ?? (cfg.perm ? `${cfg.perm}:add` : ''))
+          : cfg.perm
+            ? `${cfg.perm}:edit`
+            : '',
       );
       if (sameForm && allowed) {
         const values = fillableValues(cfg.fields, pending.values, !!editing);
@@ -113,7 +121,10 @@ export function CrudPage(cfg: CrudConfig) {
       if (mode === 'create') {
         if (
           cfg.canCreate === false ||
-          !hasPermission(permissions, cfg.perm ? `${cfg.perm}:add` : '')
+          !hasPermission(
+            permissions,
+            cfg.createPerm ?? (cfg.perm ? `${cfg.perm}:add` : ''),
+          )
         )
           return;
         await edit(undefined, pending.values);
@@ -156,12 +167,19 @@ export function CrudPage(cfg: CrudConfig) {
     setLoading(true);
     try {
       const result = cfg.tree
-        ? await allRows(cfg.base, { ...filters, ...cfg.params })
-        : await api.get<PageData<Row> | Row[]>(`${cfg.base}/list`, {
-            ...page,
-            ...filters,
+        ? await allRows(cfg.base, {
+            ...writeFormValues(cfg.fields, filters),
             ...cfg.params,
-          });
+          })
+        : await api.get<PageData<Row> | Row[]>(
+            `${cfg.base}/list`,
+            {
+              ...page,
+              ...writeFormValues(cfg.fields, filters),
+              ...cfg.params,
+            },
+            { dedupe: false },
+          );
       setRows(Array.isArray(result) ? result : result.rows);
       setTotal(Array.isArray(result) ? result.length : result.total);
     } finally {
@@ -181,18 +199,51 @@ export function CrudPage(cfg: CrudConfig) {
     title: cfg.title,
     mode: editing ? 'update' : 'create',
     enabled: editing !== undefined,
-    permission: cfg.perm ? `${cfg.perm}:${editing ? 'edit' : 'add'}` : '',
-    fields: cfg.fields.filter((field) => !field.hidden && field.form !== false && !(editing && field.createOnly)).map((field) => field.name),
+    permission: editing
+      ? cfg.perm
+        ? `${cfg.perm}:edit`
+        : ''
+      : (cfg.createPerm ?? (cfg.perm ? `${cfg.perm}:add` : '')),
+    fields: cfg.fields
+      .filter(
+        (field) =>
+          !field.hidden &&
+          field.form !== false &&
+          !(editing && field.createOnly),
+      )
+      .map((field) => field.name),
     defaults: formDefaults(cfg.fields, !!editing, cfg.title),
-    required: cfg.fields.filter((field) => !field.hidden && field.form !== false && !(editing && field.createOnly) && (field.required || (!editing && field.createRequired))).map((field) => field.name),
-    descriptions: Object.fromEntries(cfg.fields.filter((field) => field.help).map((field) => [field.name, field.help as string])),
+    required: cfg.fields
+      .filter(
+        (field) =>
+          !field.hidden &&
+          field.form !== false &&
+          !(editing && field.createOnly) &&
+          (field.required || (!editing && field.createRequired)),
+      )
+      .map((field) => field.name),
+    descriptions: Object.fromEntries(
+      cfg.fields
+        .filter((field) => field.help)
+        .map((field) => [field.name, field.help as string]),
+    ),
     fill: (values, defaults) => {
-      const patch = fillWithDefaults(form.getFieldsValue(), fillableValues(cfg.fields, defaults, !!editing), fillableValues(cfg.fields, values, !!editing));
+      const patch = fillWithDefaults(
+        form.getFieldsValue(),
+        fillableValues(cfg.fields, defaults, !!editing),
+        fillableValues(cfg.fields, values, !!editing),
+      );
       const combined = { ...form.getFieldsValue(), ...patch };
-      form.setFieldsValue({ ...cfg.onValuesChange?.(patch, combined), ...patch });
+      form.setFieldsValue({
+        ...cfg.onValuesChange?.(patch, combined),
+        ...patch,
+      });
     },
   });
-  usePageRefresh(() => { setSelected([]); return load(); });
+  usePageRefresh(() => {
+    setSelected([]);
+    return load();
+  });
   const action = useAdminAction(() => {
     setSelected([]);
     void load().catch(() => {});
@@ -225,7 +276,7 @@ export function CrudPage(cfg: CrudConfig) {
             mode: editing ? 'update' : 'create',
             recordId: editing ? String(editing[cfg.idKey]) : undefined,
           },
-    filters: { ...filters, ...cfg.params },
+    filters: { ...writeFormValues(cfg.fields, filters), ...cfg.params },
     selectedIds: selected.map((id) =>
       typeof id === 'number' ? id : String(id),
     ),
@@ -274,7 +325,9 @@ export function CrudPage(cfg: CrudConfig) {
       try {
         values = {
           ...values,
-          ...(await api.get<Row>(`${cfg.base}/${row[cfg.idKey]}`)),
+          ...(await api.get<Row>(`${cfg.base}/${row[cfg.idKey]}`, undefined, {
+            dedupe: false,
+          })),
         };
       } catch {
         return;
@@ -292,7 +345,7 @@ export function CrudPage(cfg: CrudConfig) {
     }
     form.resetFields();
     form.setFieldsValue(values);
-    setEditing(row ?? null);
+    setEditing(row ? values : null);
   }
   async function save() {
     const raw = await form.validateFields();
@@ -310,13 +363,20 @@ export function CrudPage(cfg: CrudConfig) {
       return;
     }
     if (cfg.prepare) values = cfg.prepare(values, !!editing);
-    if (editing) values[cfg.idKey] = editing[cfg.idKey];
+    if (editing) {
+      values[cfg.idKey] = editing[cfg.idKey];
+      if (typeof editing.version === 'number') values.version = editing.version;
+    }
     const updating = !!editing;
     await action.run({
       title: updating
         ? t('修改{value0}', { value0: cfg.title })
         : t('新增{value0}', { value0: cfg.title }),
-      url: updating ? (cfg.updateUrl ?? cfg.base) : (cfg.createUrl ?? cfg.base),
+      url: updating
+        ? typeof cfg.updateUrl === 'function'
+          ? cfg.updateUrl(editing ?? {})
+          : (cfg.updateUrl ?? cfg.base)
+        : (cfg.createUrl ?? cfg.base),
       method: updating ? 'PUT' : 'POST',
       args: values,
       previewUrl: `${cfg.base}/${updating ? 'update' : 'create'}/preview`,
@@ -330,7 +390,7 @@ export function CrudPage(cfg: CrudConfig) {
         value0: ids.length,
         value1: cfg.title,
       }),
-      url: `${cfg.base}/${ids.join(',')}`,
+      url: cfg.removeUrl?.(ids) ?? `${cfg.base}/${ids.join(',')}`,
       method: 'DELETE',
       args: deletionArgs(cfg.idKey, ids),
       previewUrl: cfg.removePreviewUrl ?? `${cfg.base}/remove/preview`,
@@ -345,7 +405,8 @@ export function CrudPage(cfg: CrudConfig) {
           !f.hidden &&
           f.type !== 'password' &&
           f.type !== 'json' &&
-          f.type !== 'textarea',
+          f.type !== 'textarea' &&
+          f.type !== 'items',
       )
       .map((f) => ({
         title: f.label,
@@ -377,6 +438,24 @@ export function CrudPage(cfg: CrudConfig) {
       fixed: 'right' as const,
       render: (_: unknown, row: Row) => (
         <Space wrap size={2}>
+          {cfg.detail && (
+            <Auth perm={cfg.detailPerm ?? `${cfg.perm}:query`}>
+              <Button
+                type="link"
+                size="small"
+                onClick={() =>
+                  void api
+                    .get<Row>(`${cfg.base}/${row[cfg.idKey]}`, undefined, {
+                      dedupe: false,
+                    })
+                    .then(setDetail)
+                    .catch(() => {})
+                }
+              >
+                {t('详情')}
+              </Button>
+            </Auth>
+          )}
           {cfg.canEdit !== false && (
             <Auth perm={cfg.perm ? `${cfg.perm}:edit` : ''}>
               <Button size="small" type="link" onClick={() => void edit(row)}>
@@ -451,14 +530,19 @@ export function CrudPage(cfg: CrudConfig) {
         <Auth perm={cfg.perm ? `${cfg.perm}:export` : ''}>
           <Button
             icon={<DownloadOutlined />}
-            onClick={() => void download(`${cfg.base}/list/export`, filters)}
+            onClick={() =>
+              void download(
+                `${cfg.base}/list/export`,
+                writeFormValues(cfg.fields, filters),
+              )
+            }
           >
             {t('导出')}
           </Button>
         </Auth>
       )}
       {cfg.canCreate !== false && (
-        <Auth perm={cfg.perm ? `${cfg.perm}:add` : ''}>
+        <Auth perm={cfg.createPerm ?? (cfg.perm ? `${cfg.perm}:add` : '')}>
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -477,7 +561,7 @@ export function CrudPage(cfg: CrudConfig) {
         <Card className="intent-search-card">
           <Form
             name={`search-${cfg.idKey}`}
-            initialValues={initialQuery.filters}
+            initialValues={editFormValues(cfg.fields, initialQuery.filters)}
             form={search}
             layout="vertical"
             className="intent-search-form"
@@ -654,6 +738,13 @@ export function CrudPage(cfg: CrudConfig) {
             />
           </div>
           {cfg.editorExtra?.(form, editing ?? null)}
+          {cfg.attachments && editing && (
+            <AttachmentEditor
+              key={String(editing[cfg.idKey])}
+              entity={cfg.attachments.entity}
+              recordId={String(editing[cfg.idKey])}
+            />
+          )}
         </ProForm>
       </Modal>
       {aiAction && (
@@ -670,6 +761,51 @@ export function CrudPage(cfg: CrudConfig) {
           onClosed={() => setAiAction(undefined)}
         />
       )}
+      <Drawer
+        title={t('详情')}
+        open={active && !!detail}
+        onClose={() => setDetail(undefined)}
+        size="large"
+        destroyOnHidden
+      >
+        {detail && (
+          <>
+            <Descriptions
+              column={1}
+              bordered
+              items={cfg.fields
+                .filter(
+                  (field) =>
+                    field.type !== 'password' &&
+                    !field.hidden &&
+                    (field.column !== false || field.form !== false),
+                )
+                .map((field) => ({
+                  key: field.name,
+                  label: field.label,
+                  children: field.render
+                    ? field.render(detail[field.name], detail)
+                    : typeof detail[field.name] === 'object'
+                      ? JSON.stringify(detail[field.name])
+                      : renderValue(field, detail[field.name]),
+                }))}
+            />
+            {cfg.attachments && (
+              <AttachmentEditor
+                key={String(detail[cfg.idKey])}
+                entity={cfg.attachments.entity}
+                recordId={String(detail[cfg.idKey])}
+                readOnly={
+                  !hasPermission(
+                    useUserStore.getState().identity?.permissions ?? [],
+                    `${cfg.perm}:edit`,
+                  )
+                }
+              />
+            )}
+          </>
+        )}
+      </Drawer>
       {action.modal}
     </PageContainer>
   );
@@ -725,10 +861,22 @@ function ActionButton({
     permission: spec.perm,
     enabled: open && !spec.readOnly,
     defaults: formDefaults(spec.fields ?? [], false, spec.label),
-    required: (spec.fields ?? []).filter((field) => field.required || field.createRequired).map((field) => field.name),
-    descriptions: Object.fromEntries((spec.fields ?? []).filter((field) => field.help).map((field) => [field.name, field.help as string])),
+    required: (spec.fields ?? [])
+      .filter((field) => field.required || field.createRequired)
+      .map((field) => field.name),
+    descriptions: Object.fromEntries(
+      (spec.fields ?? [])
+        .filter((field) => field.help)
+        .map((field) => [field.name, field.help as string]),
+    ),
     fill: (values, defaults) =>
-      form.setFieldsValue(fillWithDefaults(form.getFieldsValue(), fillableValues(spec.fields ?? [], defaults, false), fillableValues(spec.fields ?? [], values, false))),
+      form.setFieldsValue(
+        fillWithDefaults(
+          form.getFieldsValue(),
+          fillableValues(spec.fields ?? [], defaults, false),
+          fillableValues(spec.fields ?? [], values, false),
+        ),
+      ),
   });
   const previewing = useRef(false);
   const action = useAdminAction(

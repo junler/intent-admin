@@ -221,11 +221,14 @@ func (s *Service) Password(ctx context.Context, id int64, password string, p Pri
 	} else if err = s.protect(ctx, Spec("user"), row, nil, "update", p); err != nil {
 		return err
 	}
+	if old != nil && password == *old {
+		return errcode.BadRequestf("新密码不能与原密码相同")
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
-	if err = s.db(ctx).Table("sys_user").Where("user_id=?", id).Updates(map[string]any{"password": string(hash), "update_by": p.Name, "update_time": time.Now()}).Error; err != nil {
+	if err = s.db(ctx).Table("sys_user").Where("user_id=?", id).Updates(map[string]any{"must_change_password": old == nil, "password": string(hash), "update_by": p.Name, "update_time": time.Now()}).Error; err != nil {
 		return err
 	}
 	dbx.AfterCommit(ctx, func() { _ = s.RevokeSessions(context.Background(), id) })

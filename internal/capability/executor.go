@@ -67,6 +67,7 @@ type Hooks struct {
 	Validate func(in any) error
 	// MaxChangesetItems caps one changeset; 0 disables the check.
 	MaxChangesetItems int
+	Deduplicate       func(context.Context, *Entry, *Actor, any, func(context.Context) (any, error)) (any, error)
 }
 
 var hooks Hooks
@@ -349,7 +350,17 @@ func run(ctx context.Context, e *Entry, actor *Actor, in any) (out any, err erro
 	exec := func(txCtx context.Context) error {
 		txCtx = WithRecorder(txCtx, recorder)
 		txCtx = withInvocation(txCtx, auditParameters(e.Name, in))
-		result, ierr := e.invoke(txCtx, in)
+		invoke := func(ctx context.Context) (any, error) { return e.invoke(ctx, in) }
+		var result any
+		var ierr error
+		if e.Deduplicate && RequestKey(txCtx) != "" {
+			if hooks.Deduplicate == nil {
+				return errcode.Internalf("请求去重未配置")
+			}
+			result, ierr = hooks.Deduplicate(txCtx, e, actor, in, invoke)
+		} else {
+			result, ierr = invoke(WithRequestKey(txCtx, ""))
+		}
 		if ierr != nil {
 			return ierr
 		}
