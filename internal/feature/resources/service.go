@@ -34,17 +34,19 @@ import (
 )
 
 type Service struct {
-	db     *gorm.DB
-	cache  *cache.Cache
-	cfg    *config.Config
-	cipher *secret.Cipher
+	db                 *gorm.DB
+	cache              *cache.Cache
+	cfg                *config.Config
+	cipher             *secret.Cipher
+	attachmentPolicies map[string]AttachmentPolicy
 }
 
 func Register(db *gorm.DB, c *cache.Cache, cfg *config.Config, cipher *secret.Cipher) *Service {
-	s := &Service{db, c, cfg, cipher}
+	s := &Service{db: db, cache: c, cfg: cfg, cipher: cipher}
 	s.registerProviders()
 	s.registerStorage()
 	s.registerFiles()
+	s.registerAttachments()
 	return s
 }
 func (s *Service) dbFor(ctx context.Context) *gorm.DB { return dbx.DBFrom(ctx, s.db) }

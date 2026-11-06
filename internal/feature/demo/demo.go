@@ -19,6 +19,7 @@ import (
 	"github.com/junler/intent-admin/internal/capability/undo"
 	"github.com/junler/intent-admin/internal/dbx"
 	"github.com/junler/intent-admin/internal/model"
+	"github.com/junler/intent-admin/internal/pkg/concurrency"
 	"github.com/junler/intent-admin/internal/pkg/errcode"
 	"github.com/junler/intent-admin/internal/service"
 	"github.com/junler/intent-admin/internal/task"
@@ -89,21 +90,30 @@ func Register(db *gorm.DB, tasks *task.Runtime) {
 		Fn: svc.List,
 	})
 
+	capability.Register(capability.Capability[struct {
+		ItemID int64 `json:"itemId" uri:"itemId" validate:"required,gt=0"`
+	}, service.DemoItemView]{Meta: capability.Meta{Name: "demo.item.get", Summary: "查看示例条目", Perm: "demo:item:list", Risk: capability.RiskLow, HTTP: &capability.HTTPBinding{Method: "GET", Path: route + "/:itemId"}, AIEnabled: true, MCPEnabled: true}, Fn: func(ctx context.Context, in struct {
+		ItemID int64 `json:"itemId" uri:"itemId" validate:"required,gt=0"`
+	}) (service.DemoItemView, error) {
+		return svc.Get(ctx, in.ItemID)
+	}})
+
 	capability.Register(capability.Capability[service.DemoUpdateIn, capability.Empty]{
 		Meta: capability.Meta{
-			Name:       "demo.item.update",
-			Summary:    "修改示例条目",
-			Tags:       []string{"示例"},
-			Perm:       "demo:item:edit",
-			Risk:       capability.RiskMedium,
-			Mutating:   true,
-			Reversible: true,
-			Idempotent: true,
-			HTTP:       &capability.HTTPBinding{Method: "PUT", Path: route + "/update/:itemId"},
-			AIEnabled:  true,
-			MCPEnabled: true,
-			LogTitle:   "示例条目",
-			BizType:    capability.BizUpdate,
+			Name:        "demo.item.update",
+			Summary:     "修改示例条目",
+			Tags:        []string{"示例"},
+			Perm:        "demo:item:edit",
+			Risk:        capability.RiskMedium,
+			Mutating:    true,
+			Reversible:  true,
+			Idempotent:  true,
+			Deduplicate: true,
+			HTTP:        &capability.HTTPBinding{Method: "PUT", Path: route + "/update/:itemId"},
+			AIEnabled:   true,
+			MCPEnabled:  true,
+			LogTitle:    "示例条目",
+			BizType:     capability.BizUpdate,
 			Examples: []capability.Example{
 				{Utterance: "把 3 号条目停用", Args: `{"itemId":3,"status":"1"}`},
 				{Utterance: "把示例条目 A 的金额改成 25 元", Args: `{"itemId":1,"amount":2500}`},
@@ -119,6 +129,9 @@ func Register(db *gorm.DB, tasks *task.Runtime) {
 				Where("item_id = ? AND del_flag = ?", in.ItemID, model.DelFlagAlive).
 				First(&current).Error; err != nil {
 				return nil, errcode.NotFoundf("条目 %d 不存在", in.ItemID)
+			}
+			if err := concurrency.Check(in.Version, current.Version); err != nil {
+				return nil, err
 			}
 			return dryrun.ForUpdate(ctx, db, &model.DemoItem{},
 				[]any{in.ItemID},

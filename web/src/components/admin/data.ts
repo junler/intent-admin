@@ -4,11 +4,15 @@ import type { Row } from './types';
 export async function allRows(base: string, params: Row = {}): Promise<Row[]> {
   const rows: Row[] = [];
   for (let pageNum = 1; pageNum <= 1000; pageNum++) {
-    const result = await api.get<PageData<Row> | Row[]>(`${base}/list`, {
-      ...params,
-      pageNum,
-      pageSize: 100,
-    });
+    const result = await api.get<PageData<Row> | Row[]>(
+      `${base}/list`,
+      {
+        ...params,
+        pageNum,
+        pageSize: 100,
+      },
+      { dedupe: false },
+    );
     if (Array.isArray(result)) return result;
     rows.push(...result.rows);
     if (rows.length >= result.total || result.rows.length === 0) return rows;

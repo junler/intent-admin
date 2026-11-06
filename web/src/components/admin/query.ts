@@ -8,7 +8,7 @@ export function readCrudQuery(fields: Field[], search: string) {
     if (field.type === 'number') {
       const value = Number(raw);
       if (raw !== '' && Number.isFinite(value)) filters[field.name] = value;
-    } else if (field.type === 'multi')
+    } else if (field.type === 'multi' || field.type === 'dateRange')
       filters[field.name] = params.getAll(field.name);
     else filters[field.name] = raw;
   }
@@ -38,7 +38,13 @@ export function writeCrudQuery(
     const value = filters[field.name];
     if (Array.isArray(value)) {
       if (value.length)
-        for (const item of value) params.append(field.name, String(item));
+        for (const item of value)
+          params.append(
+            field.name,
+            typeof item?.toISOString === 'function'
+              ? item.toISOString()
+              : String(item),
+          );
       else params.set(field.name, '');
     } else
       params.set(

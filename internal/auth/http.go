@@ -51,6 +51,10 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			response.Abort(c, err)
 			return
 		}
+		if user.MustChangePassword && !passwordChangeRoute(c.Request.Method, strings.TrimPrefix(c.Request.URL.Path, s.cfg.App.BasePath)) {
+			response.Abort(c, errcode.Forbiddenf("请先修改初始密码"))
+			return
+		}
 		snapshot, err := s.permissions(c.Request.Context(), user.UserID)
 		if err != nil {
 			response.Abort(c, err)
@@ -225,4 +229,12 @@ func (s *Service) refreshToken(c *gin.Context) {
 		return
 	}
 	response.OK(c, map[string]int64{"expiresIn": int64(ttl.Seconds())})
+}
+
+func passwordChangeRoute(method, path string) bool {
+	switch method + " " + path {
+	case "GET /getInfo", "GET /getRouters", "POST /logout", "POST /refreshToken", "GET /system/user/profile", "PUT /system/user/profile/updatePwd":
+		return true
+	}
+	return false
 }

@@ -46,3 +46,6 @@ web/src/.umi-production/
 web/.cache/
 web/.temp/
 web/.turbo/
+
+# Generated one-time bootstrap credentials
+configs/initial-admin.txt

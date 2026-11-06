@@ -54,7 +54,7 @@ func registerCreate(db *gorm.DB) {
 		return p, nil
 	}
 	capability.Register(capability.Capability[CreateInput, map[string]any]{
-		Meta:   capability.Meta{Name: "demo.item.create", Summary: "新增示例条目", Tags: []string{"示例"}, Perm: "demo:item:edit", Risk: capability.RiskMedium, Mutating: true, Reversible: true, HTTP: &capability.HTTPBinding{Method: "POST", Path: route}, AIEnabled: true, MCPEnabled: true, BizType: capability.BizCreate, LogTitle: "示例条目", Examples: []capability.Example{{Utterance: "新增一个示例条目", Args: `{"name":"示例","category":"alpha","amount":100}`}}},
+		Meta:   capability.Meta{Name: "demo.item.create", Summary: "新增示例条目", Tags: []string{"示例"}, Perm: "demo:item:edit", Risk: capability.RiskMedium, Mutating: true, Deduplicate: true, Reversible: true, HTTP: &capability.HTTPBinding{Method: "POST", Path: route}, AIEnabled: true, MCPEnabled: true, BizType: capability.BizCreate, LogTitle: "示例条目", Examples: []capability.Example{{Utterance: "新增一个示例条目", Args: `{"name":"示例","category":"alpha","amount":100}`}}},
 		DryRun: plan,
 		Fn: func(ctx context.Context, in CreateInput) (map[string]any, error) {
 			if _, err := plan(ctx, in); err != nil {

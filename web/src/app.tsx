@@ -176,7 +176,7 @@ function HeaderSearch() {
 }
 
 function AuthGate({ children }: { children: ReactNode }) {
-  const { ready, load, reset } = useUserStore();
+  const { ready, load, reset, identity } = useUserStore();
   const location = useLocation();
   const { setInitialState } = useModel('@@initialState');
   const [failed, setFailed] = useState(false);
@@ -239,6 +239,12 @@ function AuthGate({ children }: { children: ReactNode }) {
         replace
       />
     );
+  if (
+    ready &&
+    identity?.user.mustChangePassword &&
+    location.pathname !== '/system/profile'
+  )
+    return <Navigate to="/system/profile?tab=password" replace />;
   if (failed && !ready)
     return (
       <Result

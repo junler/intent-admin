@@ -180,5 +180,12 @@
   "{title}：搜索表单": "{title}: search form",
   "保存": "Save",
   "搜索": "Search",
-  "确定": "Confirm"
+  "确定": "Confirm",
+  "上传附件": "Upload attachment",
+  "删除明细": "Remove line",
+  "更新业务附件": "Update attachments",
+  "添加明细": "Add line",
+  "移除关联": "Detach",
+  "请先修改初始密码": "Change your initial password to continue",
+  "附件保存失败，请刷新后重试": "Unable to save attachments. Refresh and try again."
 }

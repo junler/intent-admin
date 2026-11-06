@@ -161,6 +161,9 @@ func compileSQL(sql string, tables []Table) (string, error) {
 		projection := quote(t.Name) + " AS MATERIALIZED (SELECT " + strings.Join(columns, ",") + " FROM " + quote(t.Schema) + "." + quote(t.Name)
 		if softDelete {
 			projection += " WHERE del_flag='0'"
+			if t.Name == "sys_upload" {
+				projection += " AND biz_type <> 'business'"
+			}
 		}
 		ctes = append(ctes, projection+")")
 	}

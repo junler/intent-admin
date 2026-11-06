@@ -196,6 +196,20 @@ func TestAuthenticationIntegration(t *testing.T) {
 	expect("GET", "/demo/item/list", limited, nil, 200, 200)
 	expect("POST", "/demo/item/list/export", limited, map[string]any{}, 403, 403)
 
+	// A temporary password grants only the route set needed to replace it.
+	if err := app.DB.Exec("UPDATE sys_user SET must_change_password=true WHERE user_id=?", userID).Error; err != nil {
+		t.Fatal(err)
+	}
+	expect("GET", "/demo/item/list", limited, nil, 403, 403)
+	expect("GET", "/getInfo", limited, nil, 200, 200)
+	expect("POST", "/system/token", limited, map[string]any{"name": "blocked"}, 403, 403)
+	expect("PUT", "/system/user/profile/updatePwd", limited, map[string]any{"oldPassword": "wrong-password", "newPassword": "chosen-pass"}, 200, 400)
+	expect("PUT", "/system/user/profile/updatePwd", limited, map[string]any{"oldPassword": "123456", "newPassword": "123456"}, 200, 400)
+	expect("PUT", "/system/user/profile/updatePwd", limited, map[string]any{"oldPassword": "123456", "newPassword": "chosen-pass"}, 200, 200)
+	expect("GET", "/getInfo", limited, nil, 401, 401)
+	limited = login(limitedName, "chosen-pass")
+	expect("GET", "/demo/item/list", limited, nil, 200, 200)
+
 	// Extending the Redis session preserves its signed token; deleting it wins.
 	payload, err := base64.RawURLEncoding.DecodeString(strings.Split(adminToken, ".")[1])
 	if err != nil {

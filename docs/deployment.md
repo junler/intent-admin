@@ -25,7 +25,7 @@ Do not use `docker compose down -v` unless intentionally deleting this installat
 
 ## Upgrade and release artifacts
 
-Run `intent-admin migrate up` before starting the new binary. Migrations are embedded and versioned; configuration remains outside the binary. `intent-admin migrate seed` only fills missing initial records. Rollback migrations in a staging copy before using `migrate down`; schema rollbacks may remove tables. Business rollback uses changesets instead of migration rollback.
+Run `intent-admin migrate up` before starting the new binary. Migrations are embedded and versioned; configuration remains outside the binary. `intent-admin migrate seed` only fills missing initial records. Rollback migrations in a staging copy before using `migrate down`; schema rollbacks may remove tables. The runtime does not expose business rollback or cross-person approval endpoints.
 
 `make build` or the multi-stage Dockerfile builds the frontend and a static backend. Build metadata is available from `version`. The production container runs as UID/GID 65532 and contains no shell. `healthcheck` probes `/healthz` and validates the response code. The local upload volume must be writable by that UID.
 
@@ -47,7 +47,7 @@ INTENT_ADMIN_TASK_EMBEDDED=false intent-admin serve --config configs/config.yaml
 intent-admin worker --config configs/config.yaml --concurrency 10
 ```
 
-Set `task.scheduler=true` on exactly one serving process; workers consume queued work independently. Every replica must share PostgreSQL, Redis, the key prefix, signing/encryption keys and object storage. Queue submissions first enter the PostgreSQL task outbox in the business transaction; a dispatcher retries pending deliveries with stable task IDs. The current migrations define 29 application tables, excluding Goose migration metadata, including the outbox, cross-person approval records, OAuth state and private notifications. Task handlers come from the named registry; arbitrary commands and code are not accepted as job targets.
+Set `task.scheduler=true` on exactly one serving process; workers consume queued work independently. Every replica must share PostgreSQL, Redis, the key prefix, signing/encryption keys and object storage. Queue submissions first enter the PostgreSQL task outbox in the business transaction; a dispatcher retries pending deliveries with stable task IDs. The migrations include the outbox, retained legacy tables, OAuth state, private notifications, request receipts and business attachment links. Task handlers come from the named registry; arbitrary commands and code are not accepted as job targets.
 
 ## MCP OAuth and Resources
 
@@ -61,11 +61,9 @@ The Resources protocol exposes permission-filtered capabilities, dictionaries, e
 
 The frontend is built from the official Ant Design Pro / Umi Max scaffold with shared layout, cards, forms and responsive tables. The header language picker persists Chinese or English locally and reloads the page using Umi's default locale behavior. A locale switch does not migrate user-entered business content.
 
-XLSX imports are available for users, roles, parameters, dictionary data and demo items. Imports are create-only, require the entity's existing create permission, and reject existing unique keys. The limit is one file of at most 5 MB and 200 data rows, further reduced by `changeset.max_items_per_set` when applicable. A valid owner-bound preview expires after 10 minutes. Confirmation rechecks permissions, uniqueness, configuration and current data before committing the whole batch into one changeset. A validation or write failure leaves no partial batch. User passwords come from the server's initial-password setting; password/grant columns and credential-bearing parameters are rejected. Redis loss expires staged imports, so users upload again.
+XLSX imports are available for users, roles, parameters, dictionary data and demo items. Imports are create-only, require the entity's existing create permission, and reject existing unique keys. The limit is one file of at most 5 MB and 200 data rows, further reduced by `changeset.max_items_per_set` when applicable. A valid owner-bound preview expires after 10 minutes. Confirmation rechecks permissions, uniqueness, configuration and current data before committing the whole batch in one database transaction. A validation or write failure leaves no partial batch. User passwords come from the server's initial-password setting; password/grant columns and credential-bearing parameters are rejected. Redis loss expires staged imports, so users upload again.
 
-Cross-person plan approvals require a distinct assigned reviewer with `ai:plan:approve`, AI access and the original operations' permissions. Both participants' live permissions and risk ceilings are checked at request, approval and execution. The proposer executes the approved plan; approval cannot raise the available risk ceiling. Data or plan changes invalidate the reviewed snapshot and require a fresh approval. Pending requests and decisions have durable PostgreSQL records, with private recipient notifications. Approval expiry never exceeds the plan's expiry.
 
-Changeset details support selected item IDs and an exact preview confirmation. Custom compensation groups remain atomic. Independent successful items are marked rolled back, conflicts retain their field names and reasons, and the parent shows partial, complete or failed rollback state. Each successful attempt creates a linked inverse changeset. Rolling it back restores both the business values and the corresponding original rollback states. Credential compensation depends on its unexpired encrypted Redis vault record; permanently purged export files cannot be restored.
 
 ## Reverse proxy
 
@@ -79,4 +77,66 @@ The build precompresses static assets to `.br` and `.gz`, and the binary serves 
 
 Queue management lists only the configured queues in the current Redis namespace. Grants such as `monitor:queue:list`, `monitor:queue:query`, `monitor:queue:retry`, `monitor:queue:archive`, `monitor:queue:cancel`, `monitor:queue:remove` and `monitor:queue:pause` control access. Mutations show a preview and are audited. Pause stops new task delivery; running work continues. Cancellation is best effort and cannot undo committed results. Internal export payloads and identities are redacted. Export retries use the original identity and recheck its current permissions; durable completion markers prevent completed business work from being replayed by queue controls.
 
-Changesets record the actor, source, intent, plan, approval mode, approver and changed fields. Rollback compares current values, reports conflicts and continues with independent selected items. It produces another changeset, including an inverse vault reference when credentials are compensated. Retention also limits availability of those rollback credentials; expired credentials require manual reconfiguration. Rotating `jwt.secret` invalidates sessions and existing credential-vault records, so plan that rotation alongside credential recovery.
+
+## New project initialization
+
+Use `intent-admin init config --name Orders --config configs/config.yaml` to
+create a configuration with independent random signing and encryption keys.
+Existing files are never overwritten; generated files use mode 0600. Set database
+and Redis connection values in the file or with `INTENT_ADMIN_*` environment
+variables. The command does not persist environment credentials into the file.
+
+Create an empty database, then run:
+
+```sh
+intent-admin init database --config configs/config.yaml
+# Add --with-demo to enable the example menus and install 20 example rows.
+```
+
+The initial administrator password is random and is written only to
+`configs/initial-admin.txt` (0600), or the path selected by `--credentials-file`.
+Use it to log in and replace the password immediately. Until then the backend
+allows only identity/menu retrieval, profile retrieval, password replacement,
+session refresh and logout. AI, MCP and token access also require a completed
+password change. A successful change revokes existing browser sessions.
+Delete or move the one-time credential file after saving the password securely.
+The shared initial-password system setting is empty on clean initialization;
+set an explicit value before using create-only user imports.
+
+`init database` refuses a database containing an account table. If setup is
+interrupted, retain the generated configuration and credential file and inspect
+the migration state; do not reset an existing installation with initialization.
+Existing installations upgrade with `migrate up`. Migration 00012 adds versions,
+request receipts, the initial-password flag and business attachment links.
+Existing accounts are not forced into a password change during an upgrade.
+
+To rename source/module/binary identifiers, run `scripts/rename.sh` on a clean
+checkout before initialization, as documented in CONTRIBUTING.md. Initializing
+configuration does not rewrite source files.
+
+## Concurrent edits, retries and business attachments
+
+Shared CRUD editors send the `version` read when opening their editor. A stale
+version returns application code 409 and preserves the open form for review.
+Version-aware API clients send the same field. Omission preserves compatibility
+with older clients; new business editors should always send it. PostgreSQL
+triggers advance the version for every update on the seven system CRUD tables
+and the example table.
+
+Capabilities explicitly marked `Deduplicate` accept `Idempotency-Key` (8–128
+characters). For the same principal, entry point, delegated token and capability,
+an identical request returns the original successful JSON result for 24 hours.
+Changing arguments under the same key returns 409. Permissions and risk limits
+are checked again before replay. Receipts commit with the business transaction;
+failed work leaves neither business rows nor a receipt. Only operations with
+credential-free results may opt in. Password and token operations do not opt in.
+Shared page actions retain a retry key in memory for five minutes following an
+ambiguous network/server failure. They do not automatically retry a write.
+
+Business attachments use module-registered authorization policies and private
+`business` uploads. Generic file administration and SQL projections exclude
+these uploads. Every download rechecks the associated record's live access;
+public signed local-file URLs never serve them. Each file belongs to one record,
+and attachment edits use their own revision to reject stale replacements.
+Keep S3 buckets private. Downloads stream through the authenticated application.
+See [template development](template-development.md) for component examples.

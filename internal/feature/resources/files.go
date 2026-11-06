@@ -27,6 +27,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	_ "golang.org/x/image/webp"
+	"gorm.io/gorm/clause"
 
 	"github.com/junler/intent-admin/internal/capability"
 	"github.com/junler/intent-admin/internal/model"
@@ -63,12 +64,19 @@ func (s *Service) file(ctx context.Context, id string) (model.Upload, error) {
 	err := s.dbFor(ctx).Where("upload_id = ? AND del_flag = '0' AND status = '0'", id).First(&file).Error
 	return file, mappedError(err)
 }
-func canReadFile(ctx context.Context, file model.Upload) bool {
+func (s *Service) canReadFile(ctx context.Context, file model.Upload) bool {
+	if bound, err := s.attachmentAccess(ctx, file.UploadID); bound || err != nil {
+		return bound && err == nil
+	}
+	if file.BizType == "business" {
+		a, ok := capability.ActorFrom(ctx)
+		return ok && a.UserName == file.CreateBy
+	}
 	a, ok := capability.ActorFrom(ctx)
 	return ok && (a.IsSuper() || a.UserName == file.CreateBy || a.Can("system:upload:query") || a.Can("system:upload:list"))
 }
 func (s *Service) fileList(ctx context.Context, in FileListInput) (FileList, error) {
-	q := s.dbFor(ctx).Model(&model.Upload{}).Where("del_flag = '0'")
+	q := s.dbFor(ctx).Model(&model.Upload{}).Where("del_flag = '0' AND biz_type <> 'business'")
 	if in.FileName != "" {
 		q = q.Where("file_name ILIKE ?", "%"+in.FileName+"%")
 	}
@@ -105,6 +113,9 @@ func (s *Service) localURL(file model.Upload) string {
 	return strings.TrimRight(s.cfg.App.BasePath, "/") + "/public/files/" + url.PathEscape(file.UploadID) + "?expires=" + exp + "&signature=" + s.signature(file.UploadID, exp)
 }
 func (s *Service) urlFor(ctx context.Context, file model.Upload) (string, error) {
+	if file.BizType == "business" {
+		return strings.TrimRight(s.cfg.App.BasePath, "/") + "/system/upload/" + file.UploadID + "/download", nil
+	}
 	cfg, err := s.storageConfig(ctx, file.StorageID)
 	if err != nil {
 		return "", err
@@ -124,7 +135,7 @@ func (s *Service) fileURL(c *gin.Context) {
 		response.Fail(c, err)
 		return
 	}
-	if !canReadFile(c.Request.Context(), file) {
+	if !s.canReadFile(c.Request.Context(), file) {
 		response.Fail(c, errcode.Forbiddenf("没有权限访问此文件"))
 		return
 	}
@@ -153,6 +164,10 @@ func (s *Service) publicFile(c *gin.Context) {
 		response.Fail(c, err)
 		return
 	}
+	if file.BizType == "business" {
+		response.Fail(c, errcode.Forbiddenf("业务附件需要登录后访问"))
+		return
+	}
 	if (expires == 0 && file.BizType != "avatar") || (cfg.Driver != "local" && file.BizType != "avatar") {
 		response.Fail(c, errcode.NotFoundf("文件不存在"))
 		return
@@ -165,7 +180,7 @@ func (s *Service) download(c *gin.Context) {
 		response.Fail(c, err)
 		return
 	}
-	if !canReadFile(c.Request.Context(), file) {
+	if !s.canReadFile(c.Request.Context(), file) {
 		response.Fail(c, errcode.Forbiddenf("没有权限下载此文件"))
 		return
 	}
@@ -195,7 +210,7 @@ func (s *Service) stream(c *gin.Context, file model.Upload, cfg model.StorageCon
 	c.Header("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": file.FileName}))
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Content-Security-Policy", "default-src 'none'; sandbox")
-	c.Header("Cache-Control", "private, max-age=300")
+	c.Header("Cache-Control", "private, no-store")
 	c.DataFromReader(http.StatusOK, file.Size, file.Mime, r, nil)
 }
 func safeFilename(name string) string {
@@ -291,7 +306,13 @@ func (s *Service) receive(c *gin.Context, avatar bool) {
 	if biz == "" {
 		biz = "attach"
 	}
-	if biz != "avatar" && biz != "attach" {
+	if business, _ := c.Get("business-upload"); business == true {
+		biz = "business"
+	} else if biz == "business" {
+		response.Fail(c, errcode.BadRequestf("请通过业务附件入口上传"))
+		return
+	}
+	if biz != "avatar" && biz != "attach" && biz != "business" {
 		response.Fail(c, errcode.BadRequestf("不允许的文件业务类型"))
 		return
 	}
@@ -402,16 +423,23 @@ func (s *Service) registerFiles() {
 		if err != nil {
 			return file, err
 		}
-		if !canReadFile(ctx, file) {
+		if !s.canReadFile(ctx, file) {
 			return file, errcode.Forbiddenf("没有文件访问权限")
 		}
 		file.URL, err = s.urlFor(ctx, file)
 		return file, err
 	}})
 	capability.Register(capability.Capability[FileID, capability.Empty]{Meta: capability.Meta{Name: "system.upload.remove", Summary: "删除文件", Tags: []string{"文件管理"}, Perm: "system:upload:remove", Risk: capability.RiskHigh, Mutating: true, Reversible: true, HTTP: &capability.HTTPBinding{Method: "DELETE", Path: "/system/upload/:uploadId"}, AIEnabled: true, MCPEnabled: true}, Fn: func(ctx context.Context, in FileID) (capability.Empty, error) {
-		file, err := s.file(ctx, in.UploadID)
+		var file model.Upload
+		err := s.dbFor(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where("upload_id=? AND del_flag='0' AND status='0'", in.UploadID).First(&file).Error
 		if err != nil {
 			return capability.Empty{}, err
+		}
+		if bound, err := s.attachmentAccess(ctx, in.UploadID); bound || err != nil {
+			if err != nil {
+				return capability.Empty{}, err
+			}
+			return capability.Empty{}, errcode.Conflictf("请先在业务记录中移除附件关联")
 		}
 		b, after := map[string]any{"del_flag": "0"}, map[string]any{"del_flag": "2"}
 		if err = s.dbFor(ctx).Model(&model.Upload{}).Where("upload_id = ?", in.UploadID).Updates(map[string]any{"del_flag": "2", "update_time": time.Now(), "update_by": actorName(ctx)}).Error; err != nil {

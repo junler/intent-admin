@@ -15,10 +15,15 @@ describe('complete menu choices', () => {
       { menuId: 1 },
       { menuId: 101 },
     ]);
-    expect(api.get).toHaveBeenNthCalledWith(2, '/system/menu/list', {
-      pageNum: 2,
-      pageSize: 100,
-    });
+    expect(api.get).toHaveBeenNthCalledWith(
+      2,
+      '/system/menu/list',
+      {
+        pageNum: 2,
+        pageSize: 100,
+      },
+      { dedupe: false },
+    );
   });
   it('stops when server returns no more records even if total changes during listing', async () => {
     vi.mocked(api.get).mockResolvedValueOnce({ rows: [], total: 10 });

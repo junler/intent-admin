@@ -289,6 +289,7 @@ func resourceTitle(name string) string {
 func resourceMeta(r svc.Resource, action, perm, method, path string, risk capability.Risk) capability.Meta {
 	verb := map[string]string{"create": "新增", "update": "修改", "remove": "删除"}[action]
 	m := meta("system."+r.Name+"."+action, verb+resourceTitle(r.Name), perm, method, path, risk, true, true)
+	m.Deduplicate = true
 	args := map[string]any{}
 	if action == "remove" {
 		args["ids"] = []int64{2}

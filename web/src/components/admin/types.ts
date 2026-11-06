@@ -16,7 +16,24 @@ export interface Field {
     | 'switch'
     | 'date'
     | 'tree'
-    | 'cron';
+    | 'cron'
+    | 'remote'
+    | 'dateRange'
+    | 'file'
+    | 'image'
+    | 'items';
+  namePath?: (string | number)[];
+  remote?: {
+    url: string;
+    valueKey: string;
+    labelKey: string;
+    queryKey?: string;
+    params?: Row;
+    resolveUrl?: string;
+  };
+  rangeKeys?: [string, string];
+  fields?: Field[];
+  maxCount?: number;
   required?: boolean;
   createRequired?: boolean;
   search?: boolean;
@@ -54,8 +71,13 @@ export interface CrudConfig {
   perm: string;
   fields: Field[];
   createUrl?: string;
-  updateUrl?: string;
+  updateUrl?: string | ((row: Row) => string);
+  createPerm?: string;
+  detail?: boolean;
+  detailPerm?: string;
+  attachments?: { entity: string };
   removePreviewUrl?: string;
+  removeUrl?: (ids: unknown[]) => string;
   canCreate?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;

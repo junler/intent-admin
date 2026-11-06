@@ -4,6 +4,7 @@ import "time"
 
 // IdentityAudit records who created or last edited an identity record.
 type IdentityAudit struct {
+	Version    int64     `gorm:"column:version;->" json:"version,omitempty"`
 	CreateBy   string    `gorm:"column:create_by" json:"createBy,omitempty"`
 	CreateTime time.Time `gorm:"column:create_time" json:"createTime"`
 	UpdateBy   string    `gorm:"column:update_by" json:"updateBy,omitempty"`
@@ -13,20 +14,21 @@ type IdentityAudit struct {
 
 // User is the persisted account. Password and deletion state never reach JSON.
 type User struct {
-	UserID      int64      `gorm:"column:user_id;primaryKey;autoIncrement" json:"userId"`
-	UserName    string     `gorm:"column:user_name" json:"userName"`
-	NickName    string     `gorm:"column:nick_name" json:"nickName"`
-	UserType    string     `gorm:"column:user_type" json:"userType"`
-	Email       string     `gorm:"column:email" json:"email"`
-	Phonenumber string     `gorm:"column:phonenumber" json:"phonenumber"`
-	Sex         string     `gorm:"column:sex" json:"sex"`
-	Password    string     `gorm:"column:password" json:"-"`
-	Avatar      string     `gorm:"column:avatar" json:"avatar"`
-	Status      string     `gorm:"column:status" json:"status"`
-	DelFlag     string     `gorm:"column:del_flag" json:"-"`
-	LoginIP     string     `gorm:"column:login_ip" json:"loginIp,omitempty"`
-	LoginDate   *time.Time `gorm:"column:login_date" json:"loginDate,omitempty"`
-	AIMaxRisk   *string    `gorm:"column:ai_max_risk" json:"aiMaxRisk,omitempty"`
+	MustChangePassword bool       `gorm:"column:must_change_password" json:"mustChangePassword"`
+	UserID             int64      `gorm:"column:user_id;primaryKey;autoIncrement" json:"userId"`
+	UserName           string     `gorm:"column:user_name" json:"userName"`
+	NickName           string     `gorm:"column:nick_name" json:"nickName"`
+	UserType           string     `gorm:"column:user_type" json:"userType"`
+	Email              string     `gorm:"column:email" json:"email"`
+	Phonenumber        string     `gorm:"column:phonenumber" json:"phonenumber"`
+	Sex                string     `gorm:"column:sex" json:"sex"`
+	Password           string     `gorm:"column:password" json:"-"`
+	Avatar             string     `gorm:"column:avatar" json:"avatar"`
+	Status             string     `gorm:"column:status" json:"status"`
+	DelFlag            string     `gorm:"column:del_flag" json:"-"`
+	LoginIP            string     `gorm:"column:login_ip" json:"loginIp,omitempty"`
+	LoginDate          *time.Time `gorm:"column:login_date" json:"loginDate,omitempty"`
+	AIMaxRisk          *string    `gorm:"column:ai_max_risk" json:"aiMaxRisk,omitempty"`
 	IdentityAudit
 }
 

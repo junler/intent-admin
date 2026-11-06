@@ -4,6 +4,7 @@ import { PageContainer } from '@ant-design/pro-components';
 import { history } from '@umijs/max';
 import {
   App,
+  Alert,
   Avatar,
   Button,
   Card,
@@ -65,6 +66,7 @@ export default function Profile() {
     const data = await api.get<Row>('/system/user/profile');
     const value = data.user ?? data;
     setUser(value);
+    if (value.mustChangePassword) setTab('password');
     form.setFieldsValue(value);
     setLoaded(true);
   }
@@ -86,7 +88,7 @@ export default function Profile() {
       title: t('更新个人资料'),
       url: '/system/user/profile',
       method: 'PUT',
-      args: values,
+      args: { ...values, version: user.version },
       previewUrl: '/system/user/profile/update/preview',
     });
   }
@@ -107,6 +109,14 @@ export default function Profile() {
   return (
     <PageContainer title={t('个人中心')}>
       <Card className="intent-profile-card">
+        {user.mustChangePassword && (
+          <Alert
+            type="warning"
+            showIcon
+            title={t('请先修改初始密码')}
+            className="mb-4"
+          />
+        )}
         <div className="mb-6 flex items-center gap-4">
           <Avatar
             size={72}

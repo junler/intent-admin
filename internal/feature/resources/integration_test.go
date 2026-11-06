@@ -86,6 +86,13 @@ func TestResourceIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// This suite intentionally exercises legacy internal credential compensation.
+	// Production bootstrap leaves history persistence disabled.
+	capability.Install(capability.Hooks{PersistChanges: func(context.Context, *capability.Entry, *capability.Actor, []capability.RecordedItem, json.RawMessage) (string, error) {
+		return "", nil
+	}})
+	t.Cleanup(func() { capability.Install(capability.Hooks{}) })
 	svc := Register(db, c, cfg, cipher)
 	ctx := capability.WithActor(context.Background(), &capability.Actor{Type: capability.ActorHuman, Source: capability.SourceHTTP, UserName: "resource-test", UserID: 1, Perms: []string{capability.SuperPerm}, MaxRisk: capability.RiskCritical})
 	if err = svc.Bootstrap(ctx); err != nil {

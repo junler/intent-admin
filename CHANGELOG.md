@@ -40,3 +40,11 @@ Configure and test a model service before using AI. The initial administrator re
 ### Breaking changes
 
 Frontend tooling moved from Vite/pnpm to Umi Max/npm. Use `npm ci`, `npm run dev` and `npm run build` in `web`. Unauthenticated Phase 0 API access is no longer accepted; sign in, use a scoped PAT, or authorize an OAuth client for MCP.
+
+## Unreleased — business template foundations
+
+- Add opt-in transactional request receipts and version-aware system/example editors.
+- Add private configuration/administrator initialization, optional demo data, and enforced initial password replacement.
+- Add remote selectors, date ranges, upload/image fields, editable detail rows, detail drawers, and record-authorized private attachments.
+- Add migration 00012; keep legacy unversioned API calls compatible and preserve existing accounts during upgrades.
+- Reconcile deployment guidance with the retired approval/history/rollback surfaces.

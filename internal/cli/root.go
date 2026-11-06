@@ -43,13 +43,14 @@ func newRoot() *cobra.Command {
   worker     启动异步任务 worker
   mcp        以 stdio 方式启动 MCP Server
   migrate    数据库迁移
+  init       初始化新项目配置与数据库
   version    版本信息`,
 		SilenceUsage: true,
 		// Usage noise on a runtime failure buries the actual error.
 		SilenceErrors: false,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			// version needs neither configuration nor a database.
-			if cmd.Name() == "version" {
+			if cmd.Name() == "version" || (cmd.Name() == "config" && cmd.Parent().Name() == "init") {
 				return nil
 			}
 			setupLogger(logLevel)
@@ -68,7 +69,7 @@ func newRoot() *cobra.Command {
 	root.PersistentFlags().StringVar(&logLevel, "log-level", "",
 		"日志级别：debug|info|warn|error（覆盖配置文件）")
 
-	root.AddCommand(newServeCmd(), newWorkerCmd(), newMCPCmd(), newMigrateCmd(), newDemoCmd(), newVersionCmd())
+	root.AddCommand(newServeCmd(), newWorkerCmd(), newMCPCmd(), newMigrateCmd(), newDemoCmd(), newInitCmd(), newVersionCmd())
 	return root
 }
 

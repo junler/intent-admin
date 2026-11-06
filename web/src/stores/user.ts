@@ -10,6 +10,7 @@ export interface UserInfo {
   userName: string;
   nickName: string;
   avatar?: string;
+  mustChangePassword?: boolean;
 }
 
 export interface Identity {

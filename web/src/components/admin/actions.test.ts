@@ -118,3 +118,27 @@ describe('AI form field boundaries', () => {
     expect(fillableValues(fields, input, false).password).toBe('test-only');
   });
 });
+
+describe('business field conversion', () => {
+  it('serializes date ranges consistently and restores editable dates', () => {
+    const fields = [
+      {
+        name: 'range',
+        label: 'Range',
+        type: 'dateRange' as const,
+        rangeKeys: ['beginTime', 'endTime'] as [string, string],
+      },
+    ];
+    const values = editFormValues(fields, {
+      range: ['2026-11-01T00:00:00Z', '2026-11-02T00:00:00Z'],
+    });
+    expect(writeFormValues(fields, values)).toEqual({
+      beginTime: '2026-11-01T00:00:00.000Z',
+      endTime: '2026-11-02T00:00:00.000Z',
+    });
+    expect(writeFormValues(fields, { range: null })).toEqual({
+      beginTime: '',
+      endTime: '',
+    });
+  });
+});
