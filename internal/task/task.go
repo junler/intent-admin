@@ -136,6 +136,15 @@ func (r *Runtime) Handlers() []Handler {
 	return out
 }
 func ValidateCron(expression string) (cron.Schedule, error) {
+	expression = strings.TrimSpace(expression)
+	descriptor := expression
+	if strings.HasPrefix(expression, "TZ=") || strings.HasPrefix(expression, "CRON_TZ=") {
+		parts := strings.SplitN(expression, " ", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[1]) == "" {
+			return nil, errcode.BadRequestf("时区后缺少 cron 表达式")
+		}
+		descriptor = strings.TrimSpace(parts[1])
+	}
 	if strings.Contains(expression, "?") {
 		return nil, errcode.BadRequestf("不支持 Quartz 问号占位符，请使用标准五字段 cron")
 	}
@@ -143,8 +152,8 @@ func ValidateCron(expression string) (cron.Schedule, error) {
 	if err != nil {
 		return nil, errcode.BadRequestf("cron 表达式无效：请使用分 时 日 月 周五字段，或 @every 描述符（不支持 Quartz）：%v", err)
 	}
-	if strings.HasPrefix(expression, "@every ") {
-		d, err := time.ParseDuration(strings.TrimSpace(strings.TrimPrefix(expression, "@every ")))
+	if strings.HasPrefix(descriptor, "@every ") {
+		d, err := time.ParseDuration(strings.TrimSpace(strings.TrimPrefix(descriptor, "@every ")))
 		if err != nil || d < time.Second {
 			return nil, errcode.BadRequestf("@every 间隔必须至少 1 秒")
 		}
@@ -405,10 +414,7 @@ func (r *Runtime) startScheduler(ctx context.Context) error {
 	if interval <= 0 {
 		interval = 15 * time.Second
 	}
-	location, _ := time.LoadLocation(r.Cfg.DB.TimeZone)
-	if location == nil {
-		location = time.Local
-	}
+	location := r.ScheduleLocation()
 	manager, err := asynq.NewPeriodicTaskManager(asynq.PeriodicTaskManagerOpts{RedisConnOpt: asynq.RedisClientOpt{Addr: r.Cfg.Redis.Addr, Password: r.Cfg.Redis.Password, DB: r.Cfg.Redis.DB}, PeriodicTaskConfigProvider: r, SyncInterval: interval, SchedulerOpts: &asynq.SchedulerOpts{Location: location}})
 	if err != nil {
 		return err

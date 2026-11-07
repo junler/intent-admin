@@ -45,6 +45,7 @@ export function Fields({
                 : []),
               ...(f.rules ?? []),
             ]}
+            validateTrigger={f.type === 'cron' ? 'onBlur' : 'onChange'}
             valuePropName={f.type === 'switch' ? 'checked' : 'value'}
           >
             {f.type === 'cron' ? (

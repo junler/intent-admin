@@ -5,6 +5,7 @@ import { useAiForm } from '@/hooks/useAiForm';
 import { usePageActive } from '@/contexts/ActivePageContext';
 import { t } from '@/i18n';
 import { validCron } from './cron';
+import { SchedulePreview } from './SchedulePreview';
 export const cronPresets = [
   { label: t('每 5 分钟'), value: '*/5 * * * *' },
   { label: t('每小时整点'), value: '0 * * * *' },
@@ -23,11 +24,15 @@ export function cronFields(value: string): string[] {
 export function CronInput({
   value = '',
   onChange,
+  onBlur,
 }: {
   value?: string;
   onChange?: (value: string) => void;
+  onBlur?: () => void;
 }) {
   const active = usePageActive();
+  const parentForm = Form.useFormInstance();
+  const status = Form.useWatch('status', parentForm);
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm();
   const watched = Form.useWatch([], form) ?? {};
@@ -65,6 +70,7 @@ export function CronInput({
       <Space.Compact className="w-full">
         <Input
           value={value}
+          onBlur={onBlur}
           onChange={(event) => onChange?.(event.target.value)}
           placeholder={t('分 时 日 月 周')}
         />
@@ -77,6 +83,7 @@ export function CronInput({
         value={undefined}
         onChange={(next) => onChange?.(next)}
       />
+      <SchedulePreview expression={value} paused={status !== '0'} />
       <Modal
         title={t('生成标准五字段 cron')}
         open={active && open}

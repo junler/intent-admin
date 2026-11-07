@@ -11,6 +11,13 @@ import (
 func TestJobSchemaAndPublicAnnouncementExample(t *testing.T) {
 	s := &Service{}
 	s.registerJobs()
+	preview, ok := capability.Lookup("monitor.job.schedulePreview")
+	if !ok || preview.Mutating || preview.Risk != capability.RiskLow || preview.Perm != "monitor:job:list" || preview.HTTP.Method != "GET" {
+		t.Fatal("schedule preview must remain a permission-checked read-only capability")
+	}
+	if !preview.AIEnabled || !preview.MCPEnabled || preview.InputSchema.Properties["cronExpression"] == nil {
+		t.Fatal("schedule preview must share the typed capability path")
+	}
 	for _, action := range []string{"create", "update"} {
 		entry, _ := capability.Lookup("monitor.job." + action)
 		if !reflect.DeepEqual(entry.InputSchema.Properties["jobGroup"].Enum, []any{"DEFAULT", "critical", "low"}) {

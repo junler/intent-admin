@@ -76,9 +76,7 @@ func (s *Service) job(ctx context.Context, id int64) (task.Job, error) {
 		return j, errcode.NotFoundf("任务不存在")
 	}
 	if err == nil {
-		if schedule, e := task.ValidateCron(j.CronExpression); e == nil {
-			j.NextExecution = schedule.Next(time.Now())
-		}
+		s.runtime.SetNextExecution(&j, time.Now())
 	}
 	return j, err
 }
@@ -134,7 +132,18 @@ func (s *Service) jobPreview(ctx context.Context, in JobInput, create bool) (*ca
 	p.Summary = "保存任务 " + j.JobName
 	return p, nil
 }
+
+type SchedulePreviewInput struct {
+	CronExpression string `json:"cronExpression" form:"cronExpression" validate:"required,max=256"`
+}
+
 func (s *Service) registerJobs() {
+	capability.Register(capability.Capability[SchedulePreviewInput, task.SchedulePreview]{
+		Meta: capability.Meta{Name: "monitor.job.schedulePreview", Summary: "校验并预览执行计划", Perm: "monitor:job:list", Risk: capability.RiskLow, HTTP: &capability.HTTPBinding{Method: "GET", Path: "/monitor/job/schedulePreview"}, AIEnabled: true, MCPEnabled: true},
+		Fn: func(ctx context.Context, in SchedulePreviewInput) (task.SchedulePreview, error) {
+			return s.runtime.PreviewSchedule(in.CronExpression, time.Now())
+		},
+	})
 	type dispatchIn struct {
 		TaskID string `json:"taskId" uri:"taskId" validate:"required,uuid"`
 	}
@@ -165,10 +174,9 @@ func (s *Service) registerJobs() {
 		if err = q.Scopes(order, in.Scope()).Find(&rows).Error; err != nil {
 			return Page[task.Job]{}, err
 		}
+		base := time.Now()
 		for i := range rows {
-			if schedule, err := task.ValidateCron(rows[i].CronExpression); err == nil {
-				rows[i].NextExecution = schedule.Next(time.Now())
-			}
+			s.runtime.SetNextExecution(&rows[i], base)
 		}
 		return Page[task.Job]{rows, count, in.PageNum, in.PageSize}, nil
 	}})

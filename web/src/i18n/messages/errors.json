@@ -566,5 +566,6 @@
   "执行通用流程": "Run general workflow",
   "流程条件必须引用布尔查询结果": "Workflow conditions must reference boolean query results",
   "当前表单没有可用的默认值，请补充需要填写的内容": "This form has no available defaults. Provide the values to fill in.",
-  "表单未打开或当前账号无权填写": "The form is not open or you do not have permission to fill it"
+  "表单未打开或当前账号无权填写": "The form is not open or you do not have permission to fill it",
+  "时区后缺少 cron 表达式": "Missing cron expression after the time zone"
 }

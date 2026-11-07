@@ -2,7 +2,10 @@ import { useNavigate } from '@umijs/max';
 import { Button } from 'antd';
 import { useEffect, useState } from 'react';
 import { CrudPage } from '@/components/admin/CrudPage';
-import { validCron } from '@/components/admin/cron';
+import {
+  previewSchedule,
+  scheduleTime,
+} from '@/components/admin/SchedulePreview';
 import type { Row } from '@/components/admin/types';
 import { t } from '@/i18n';
 import { api } from '@/utils/request';
@@ -88,12 +91,9 @@ export default function Jobs() {
           ),
           rules: [
             {
-              validator: (_: unknown, value: string) =>
-                validCron(value ?? '')
-                  ? Promise.resolve()
-                  : Promise.reject(
-                      new Error(t('请输入 5 字段 cron 或 @every 时间间隔')),
-                    ),
+              validator: async (_: unknown, value: string) => {
+                if (value?.trim()) await previewSchedule(value);
+              },
             },
           ],
         },
@@ -131,7 +131,30 @@ export default function Jobs() {
             { label: t('暂停'), value: '1' },
           ],
         },
-        { name: 'nextExecution', label: t('下次执行'), form: false },
+        {
+          name: 'nextExecution',
+          label: t('下次执行'),
+          form: false,
+          render: (value, row) => (
+            <div>
+              <div>
+                {value && !String(value).startsWith('0001-')
+                  ? scheduleTime(String(value))
+                  : '—'}
+              </div>
+              {row.status !== '0' && (
+                <div>{t('按表达式估算，当前不会执行')}</div>
+              )}
+              {/^(?:(?:CRON_TZ|TZ)=\S+\s+)?@every\s/.test(
+                String(row.cronExpression).trim(),
+              ) && (
+                <div>
+                  {t('@every 按当前时刻估算，不代表队列的实际下次触发时间')}
+                </div>
+              )}
+            </div>
+          ),
+        },
         { name: 'remark', label: t('备注'), type: 'textarea' },
       ]}
       actions={[

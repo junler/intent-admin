@@ -139,5 +139,14 @@
   "当前任务状态不支持此操作，已完成的持久任务不会重新执行": "This action is unavailable in the current state. Completed durable tasks cannot run again",
   "任务状态可能已变化，请刷新后重试": "Task state may have changed. Refresh and retry",
   "队列管理已取消该任务": "Task canceled by queue management",
-  "队列尚未创建，请等待首个任务入队": "The queue has not been created. Wait for its first task"
+  "队列尚未创建，请等待首个任务入队": "The queue has not been created. Wait for its first task",
+  "计划预览失败": "Schedule preview failed",
+  "正在校验执行计划…": "Validating schedule…",
+  "执行时区：{timeZone}": "Execution time zone: {timeZone}",
+  "规范表达式：{expression}": "Normalized expression: {expression}",
+  "计算基准：{time}": "Calculated from: {time}",
+  "按表达式估算，当前不会执行": "Estimated from the expression; this job is currently paused",
+  "@every 按当前时刻估算，不代表队列的实际下次触发时间": "@every is estimated from now, not the actual next trigger in the queue",
+  "未来 5 次预计执行时间": "Next 5 estimated runs",
+  "该表达式没有可计算的未来执行时间": "No future run can be calculated for this expression"
 }
