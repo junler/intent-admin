@@ -33,8 +33,8 @@ type DemoListIn struct {
 	paginate.Query
 	Name      string `json:"name"     form:"name"     jsonschema:"名称，模糊匹配"`
 	Category  string `json:"category" form:"category" jsonschema:"分类，精确匹配"`
-	BeginTime string `json:"beginTime" form:"beginTime"`
-	EndTime   string `json:"endTime" form:"endTime"`
+	BeginTime string `json:"beginTime" form:"beginTime" jsonschema:"创建时间下限（含），RFC3339，例如 2026-11-20T00:00:00+08:00"`
+	EndTime   string `json:"endTime" form:"endTime" jsonschema:"创建时间上限（含），RFC3339，例如 2026-11-20T23:59:59+08:00"`
 	Status    string `json:"status"   form:"status"   validate:"omitempty,oneof=0 1" jsonschema:"状态：0 正常，1 停用"`
 }
 

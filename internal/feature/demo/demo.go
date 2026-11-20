@@ -63,7 +63,7 @@ func Register(db *gorm.DB, tasks *task.Runtime) {
 			Tags:       []string{"示例"},
 			Perm:       "demo:item:list",
 			Risk:       capability.RiskLow,
-			HTTP:       &capability.HTTPBinding{Method: "GET", Path: route + "/list"},
+			HTTP:       &capability.HTTPBinding{Method: "GET", Path: route + "/list", OpenAPIQuery: true},
 			AIEnabled:  true,
 			MCPEnabled: true,
 			LogTitle:   "示例条目",

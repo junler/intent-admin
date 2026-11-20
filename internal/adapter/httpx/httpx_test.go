@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync/atomic"
@@ -290,5 +291,89 @@ func TestDemoRoutesAndOpenAPIAgree(t *testing.T) {
 		if op["operationId"] != name {
 			t.Fatalf("operation at %s = %v", path, op)
 		}
+	}
+}
+
+func TestDemoOpenAPIQueryMatchesHTTPBinding(t *testing.T) {
+	if _, ok := capability.Lookup("demo.item.list"); !ok {
+		demo.Register(nil, nil)
+	}
+	list, _ := capability.Lookup("demo.item.list")
+	get, _ := capability.Lookup("demo.item.get")
+	update, _ := capability.Lookup("demo.item.update")
+
+	type parameter struct {
+		Name        string
+		In          string
+		Required    bool
+		Description string
+		Schema      struct{ Type string }
+	}
+	raw, err := json.Marshal(OpenAPI([]*capability.Entry{list, get, update}, "/api", "test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Paths map[string]map[string]struct {
+			Parameters  []parameter
+			RequestBody json.RawMessage
+		}
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct{ typ, value string }{
+		"name": {"string", "示例"}, "category": {"string", "beta"}, "status": {"string", "1"},
+		"beginTime": {"string", "2026-11-20T00:00:00+08:00"}, "endTime": {"string", "2026-11-20T23:59:59+08:00"},
+		"pageNum": {"integer", "2"}, "pageSize": {"integer", "17"},
+		"orderByColumn": {"string", "createTime"}, "isAsc": {"string", "desc"},
+	}
+	op := doc.Paths["/api/demo/item/list"]["get"]
+	if len(op.Parameters) != len(want) || op.RequestBody != nil {
+		t.Fatalf("unexpected GET operation: %+v", op)
+	}
+	values := url.Values{"Unbounded": {"true"}}
+	for _, p := range op.Parameters {
+		w, ok := want[p.Name]
+		if !ok || p.In != "query" || p.Required || p.Schema.Type != w.typ || p.Description == "" {
+			t.Fatalf("unexpected query parameter: %+v", p)
+		}
+		if (p.Name == "beginTime" || p.Name == "endTime") && !strings.Contains(p.Description, "RFC3339") {
+			t.Errorf("date filter missing RFC3339 guidance: %+v", p)
+		}
+		if values.Has(p.Name) {
+			t.Fatalf("duplicate or excluded query parameter: %s", p.Name)
+		}
+		values.Set(p.Name, w.value)
+	}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/demo/item/list?"+values.Encode(), nil)
+	got := service.DemoListIn{}
+	if err := Bind(c, &got); err != nil {
+		t.Fatal(err)
+	}
+	expected := service.DemoListIn{
+		Query: paginate.Query{PageNum: 2, PageSize: 17, OrderByColumn: "createTime", IsAsc: "desc"},
+		Name:  "示例", Category: "beta", Status: "1", BeginTime: want["beginTime"].value, EndTime: want["endTime"].value,
+	}
+	if got != expected {
+		t.Fatalf("documented input binds to %+v; want %+v", got, expected)
+	}
+
+	detail := doc.Paths["/api/demo/item/{itemId}"]["get"].Parameters
+	if len(detail) != 1 || detail[0].Name != "itemId" || detail[0].In != "path" || !detail[0].Required {
+		t.Fatalf("unexpected detail parameters: %+v", detail)
+	}
+	write := doc.Paths["/api/demo/item/update/{itemId}"]["put"].Parameters
+	if len(write) != 2 || write[1].Name != "Idempotency-Key" || write[1].In != "header" || write[1].Required {
+		t.Fatalf("unexpected update parameters: %+v", write)
+	}
+
+	unlisted := *list
+	httpBinding := *list.HTTP
+	httpBinding.OpenAPIQuery = false
+	unlisted.HTTP = &httpBinding
+	if parameters := operation(&unlisted)["parameters"]; parameters != nil {
+		t.Fatalf("query parameters without explicit opt-in: %+v", parameters)
 	}
 }

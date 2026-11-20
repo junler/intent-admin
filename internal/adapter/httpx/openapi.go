@@ -3,6 +3,7 @@ package httpx
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -83,17 +84,65 @@ func operation(e *capability.Entry) map[string]any {
 	if e.Deduplicate {
 		params = append(params, map[string]any{"name": "Idempotency-Key", "in": "header", "required": false, "description": "请求重试编号，同一账号、功能和参数在 24 小时内只执行一次", "schema": map[string]any{"type": "string", "minLength": 8, "maxLength": 128}})
 	}
+	if e.HTTP.Method == http.MethodGet && e.HTTP.OpenAPIQuery {
+		params = append(params, queryParams(e)...)
+	}
 	if len(params) > 0 {
 		op["parameters"] = params
 	}
-	// Inputs are described as a request body for verbs that carry one, and
-	// left to the (already documented) query binding otherwise. Enumerating
-	// every query field would duplicate the input schema without adding
-	// information a reader does not already have.
+	// Verbs that carry an input body use the full Capability schema.
 	if e.HTTP.Method != http.MethodGet && e.HTTP.Method != http.MethodDelete {
 		op["requestBody"] = requestBody(e.InputSchema)
 	}
 	return op
+}
+
+// queryParams projects existing scalar input metadata onto explicitly named
+// Gin form fields. The JSON Schema's required list describes JSON objects,
+// not which HTTP filters must be supplied.
+func queryParams(e *capability.Entry) []any {
+	if e.InputSchema == nil {
+		return nil
+	}
+	t := reflect.TypeOf(e.NewInput())
+	if t == nil || t.Kind() != reflect.Pointer || t.Elem().Kind() != reflect.Struct {
+		return nil
+	}
+	var params []any
+	seen := make(map[string]bool)
+	for _, field := range reflect.VisibleFields(t.Elem()) {
+		name, _, _ := strings.Cut(field.Tag.Get("form"), ",")
+		if name == "" || name == "-" || seen[name] || !field.IsExported() || field.Tag.Get("uri") != "" {
+			continue
+		}
+		key, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if key == "-" {
+			continue
+		}
+		if key == "" {
+			key = field.Name
+		}
+		schema := e.InputSchema.Properties[key]
+		if schema == nil {
+			continue
+		}
+		switch schema.Type {
+		case "string", "integer", "number", "boolean":
+		default:
+			continue
+		}
+		required := false
+		for v := range strings.SplitSeq(field.Tag.Get("validate"), ",") {
+			required = required || v == "required"
+		}
+		p := map[string]any{"name": name, "in": "query", "required": required, "schema": schema}
+		if schema.Description != "" {
+			p["description"] = schema.Description
+		}
+		params = append(params, p)
+		seen[name] = true
+	}
+	return params
 }
 
 func previewOperation(e *capability.Entry) map[string]any {

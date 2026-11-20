@@ -25,6 +25,9 @@ import (
 type HTTPBinding struct {
 	Method string // GET | POST | PUT | DELETE
 	Path   string // "/system/user/:userId"
+	// OpenAPIQuery exposes explicitly form-tagged scalar filters for a GET.
+	// It affects documentation only, not parameter binding.
+	OpenAPIQuery bool
 }
 
 // Example maps a natural-language request to the arguments it should produce.

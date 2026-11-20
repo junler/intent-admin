@@ -122,6 +122,12 @@ func Register(db *gorm.DB) {
 
 Call `notes.Register(db)` from bootstrap. The shared adapter generates the HTTP operation, a POST preview route, OpenAPI schemas and AI/MCP descriptions. Add a menu permission for `demo:item:edit` when the operation has a page action.
 
+`demo.item.list` is the worked example for documenting GET filters in
+Swagger. `HTTPBinding.OpenAPIQuery` opts in to documentation of scalar input
+fields with an explicit `form` name (including embedded pagination fields).
+Types and descriptions come from the registered input schema. This does not
+change binding, validation or permissions.
+
 A new service performs its write and reports only changed fields:
 
 ```go
