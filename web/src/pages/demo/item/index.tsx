@@ -188,6 +188,7 @@ export default function DemoItemPage() {
           <ImportDialog
             base="/demo/item"
             permission="demo:item:edit"
+            templateHint={t('金额单位为分。')}
             onSuccess={() => {
               setSelected([]);
               void load().catch(() => {});
