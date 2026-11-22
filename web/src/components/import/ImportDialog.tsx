@@ -31,6 +31,7 @@ export interface ImportDialogProps {
   permission: string;
   onSuccess?: () => void;
   label?: string;
+  templateHint?: string;
 }
 interface Report {
   confirmationId: string;
@@ -48,6 +49,7 @@ export default function ImportDialog({
   permission,
   onSuccess,
   label,
+  templateHint,
 }: ImportDialogProps) {
   const active = usePageActive();
   const { message } = App.useApp();
@@ -243,9 +245,10 @@ export default function ImportDialog({
               <Space wrap>
                 <span>
                   {t(
-                    '先下载模板填写，必填列带 *；状态 0 为正常、1 为停用，金额单位为分，不支持公式。',
+                    '先下载模板填写，必填列带 *；状态 0 为正常、1 为停用，不支持公式。',
                   )}
                 </span>
+                {templateHint && <span>{templateHint}</span>}
                 <Button
                   type="link"
                   size="small"
