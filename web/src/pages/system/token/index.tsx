@@ -1,7 +1,31 @@
-import { Alert, App, Typography } from 'antd';
+import { Alert, App, Tag, Typography } from 'antd';
 import { CrudPage } from '@/components/admin/CrudPage';
 import { riskOptions } from '@/components/admin/types';
-import { t } from '@/i18n';
+import { getLocale, t } from '@/i18n';
+import { parseTokenTimestamp } from './timestamps';
+
+function renderExpiry(value: unknown) {
+  if (value === null) return t('不过期');
+  const expiry = parseTokenTimestamp(value);
+  if (!expiry) return t('时间不可用');
+  const formatted = expiry.date.toLocaleString(getLocale());
+  if (expiry.cutoffMs > Date.now()) return formatted;
+  return (
+    <>
+      <Tag color="default">{t('已过期')}</Tag>
+      {formatted}
+    </>
+  );
+}
+
+function renderLastUsed(value: unknown) {
+  if (value == null) return t('未记录');
+  return (
+    parseTokenTimestamp(value)?.date.toLocaleString(getLocale()) ??
+    t('时间不可用')
+  );
+}
+
 export default function Tokens() {
   const { modal } = App.useApp();
   return (
@@ -58,8 +82,14 @@ export default function Tokens() {
           label: t('过期时间'),
           type: 'date',
           help: t('留空表示不过期。'),
+          render: renderExpiry,
         },
-        { name: 'lastUsedAt', label: t('最近使用'), form: false },
+        {
+          name: 'lastUsedAt',
+          label: t('最近使用'),
+          form: false,
+          render: renderLastUsed,
+        },
         { name: 'createTime', label: t('创建时间'), form: false },
       ]}
     />
