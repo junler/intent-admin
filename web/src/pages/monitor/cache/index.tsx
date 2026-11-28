@@ -10,19 +10,31 @@ import {
   Table,
   Typography,
 } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { InfoPanel } from '@/components/admin/InfoPanel';
 import type { Row } from '@/components/admin/types';
 import { useAdminAction } from '@/components/admin/useAdminAction';
 import { Auth } from '@/components/auth/Auth';
 import { t } from '@/i18n';
 import { api } from '@/utils/request';
+
+const KEY_LIMIT = 500;
+const PAGE_SIZE = 15;
+type KeyList = {
+  name: string;
+  keys?: string[];
+  loading: boolean;
+  failed?: boolean;
+};
+
 export default function Cache() {
   const [info, setInfo] = useState<Row>({});
   const [names, setNames] = useState<Row[]>([]);
   const [name, setName] = useState('');
-  const [keys, setKeys] = useState<string[]>([]);
+  const [keyList, setKeyList] = useState<KeyList>();
+  const keyScope = useRef<{ name: string; request: number }>(null);
   const [filter, setFilter] = useState('');
+  const [page, setPage] = useState(1);
   const [value, setValue] = useState<Row>();
   const action = useAdminAction(() => void loadKeys());
   async function load() {
@@ -39,22 +51,48 @@ export default function Cache() {
       setName(normalized[0].cacheName ?? normalized[0].name);
   }
   async function loadKeys() {
-    if (!name) return;
-    const result = await api.get<(string | Row)[]>('/monitor/cache/keys', {
-      cacheName: name,
-    });
-    setKeys(
-      result.map((item) =>
-        typeof item === 'string' ? item : (item.cacheKey ?? item.key),
-      ),
-    );
+    const scope = keyScope.current;
+    if (!name || scope?.name !== name) return;
+    const request = ++scope.request;
+    const isCurrent = () =>
+      keyScope.current === scope && scope.request === request;
+    setKeyList((previous) => ({
+      name,
+      keys: previous?.name === name ? previous.keys : undefined,
+      loading: true,
+    }));
+    try {
+      const result = await api.get<(string | Row)[]>('/monitor/cache/keys', {
+        cacheName: name,
+      });
+      if (!isCurrent()) return;
+      setKeyList({
+        name,
+        loading: false,
+        keys: result.map((item) =>
+          typeof item === 'string' ? item : (item.cacheKey ?? item.key),
+        ),
+      });
+    } catch {
+      if (!isCurrent()) return;
+      setKeyList((previous) => ({
+        name,
+        keys: previous?.name === name ? previous.keys : undefined,
+        loading: false,
+        failed: true,
+      }));
+    }
   }
   useEffect(() => {
     void load();
   }, []);
   useEffect(() => {
+    keyScope.current = { name, request: 0 };
     void loadKeys();
     setValue(undefined);
+    return () => {
+      keyScope.current = null;
+    };
   }, [name]);
   usePageRefresh(() => Promise.all([load(), loadKeys()]));
   async function show(key: string) {
@@ -80,9 +118,12 @@ export default function Cache() {
       previewUrl: `/monitor/cache/${kind}/preview`,
     });
   }
+  const currentList = keyList?.name === name ? keyList : undefined;
+  const keys = currentList?.keys;
+  const matches = (keys ?? []).filter((key) => key.includes(filter));
   return (
     <PageContainer title={t('缓存监控')}>
-      <Space direction="vertical" className="w-full" size={20}>
+      <Space orientation="vertical" className="w-full" size={20}>
         <InfoPanel title={t('Redis 概览')} value={info} />
         <Card
           title={t('缓存浏览')}
@@ -107,15 +148,28 @@ export default function Cache() {
                   : (item.cacheName ?? item.name),
                 value: item.cacheName ?? item.name,
               }))}
-              onChange={setName}
+              onChange={(next) => {
+                setName(next);
+                setPage(1);
+              }}
             />
-            <Input.Search
+            <Input
               allowClear
-              placeholder={t('筛选当前键')}
+              aria-label={t('筛选已加载的键')}
+              placeholder={t('筛选已加载的键')}
               value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-              onSearch={() => void loadKeys()}
+              onChange={(event) => {
+                setFilter(event.target.value);
+                setPage(1);
+              }}
             />
+            <Button
+              disabled={!name}
+              loading={!!currentList?.loading}
+              onClick={() => void loadKeys()}
+            >
+              {t('刷新键列表')}
+            </Button>
             <Auth perm="monitor:cache:remove">
               <Button
                 danger
@@ -129,12 +183,35 @@ export default function Cache() {
           <Typography.Paragraph type="secondary">
             {t('只显示服务端白名单内的缓存前缀，最多加载 500 个键。')}
           </Typography.Paragraph>
+          <div role="status">
+            {keys && (
+              <Typography.Paragraph type="secondary">
+                {t('匹配 {matched} / 已加载 {loaded}', {
+                  matched: matches.length,
+                  loaded: keys.length,
+                })}
+                {keys.length >= KEY_LIMIT && (
+                  <> · {t('已达加载上限，可能还有未加载的键。')}</>
+                )}
+              </Typography.Paragraph>
+            )}
+            {currentList?.failed && (
+              <Typography.Paragraph type="danger">
+                {keys
+                  ? t('刷新失败，仍显示上次加载的键。')
+                  : t('缓存键加载失败，请刷新重试。')}
+              </Typography.Paragraph>
+            )}
+          </div>
           <Table
             rowKey="key"
             size="small"
-            dataSource={keys
-              .filter((key) => key.includes(filter))
-              .map((key) => ({ key }))}
+            loading={!!name && (!currentList || currentList.loading)}
+            locale={{
+              emptyText:
+                keys && filter ? t('已加载的键中没有匹配项') : undefined,
+            }}
+            dataSource={matches.map((key) => ({ key }))}
             columns={[
               {
                 title: t('缓存键'),
@@ -161,7 +238,16 @@ export default function Cache() {
                 ),
               },
             ]}
-            pagination={{ pageSize: 15, hideOnSinglePage: true }}
+            pagination={{
+              current: Math.min(
+                page,
+                Math.max(1, Math.ceil(matches.length / PAGE_SIZE)),
+              ),
+              onChange: setPage,
+              pageSize: PAGE_SIZE,
+              showSizeChanger: false,
+              hideOnSinglePage: true,
+            }}
           />
           {value && (
             <Descriptions
